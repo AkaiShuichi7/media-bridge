@@ -15,7 +15,7 @@ from app.services.fanhao_parser import (
 )
 from app.services.cloud.base import CloudService
 from app.services.cloud.p115 import P115CloudService
-from app.services.cache.path_cache import PathIdCacheService
+from app.services.path_cache import PathCache
 
 __all__ = [
     "P115Client",
@@ -30,5 +30,5 @@ __all__ = [
     "remove_keywords",
     "CloudService",
     "P115CloudService",
-    "PathIdCacheService",
+    "PathCache",
 ]
