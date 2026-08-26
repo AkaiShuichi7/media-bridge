@@ -7,7 +7,10 @@ import asyncio
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from datetime import datetime
+
 import pytest
+from app.schemas.cloud_types import CloudTask
 
 
 class TestStartStopMonitor:
@@ -64,13 +67,7 @@ class TestCheckTasksSuccess:
         from app.tasks.monitor import TaskMonitor
 
         # 模拟已完成的任务（status == 2）
-        completed_task = {
-            "info_hash": "abc123hash",
-            "name": "测试任务",
-            "status": 2,  # 完成
-            "file_id": "12345",
-            "add_time": 1700000000,
-        }
+        completed_task = CloudTask(info_hash="abc123hash", name="测试任务", status=2, progress=0, file_id="12345", path="", add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -148,14 +145,7 @@ class TestCheckTasksFailure:
         from app.tasks.monitor import TaskMonitor
 
         # 模拟失败的任务（status == 1）
-        failed_task = {
-            "info_hash": "failed123hash",
-            "name": "失败的任务",
-            "status": -1,  # 失败（负数表示失败）
-            "file_id": "67890",
-            "add_time": 1700000000,
-            "error_msg": "下载超时",
-        }
+        failed_task = CloudTask(info_hash="failed123hash", name="失败的任务", status=-1, progress=0, file_id="67890", path="", add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -303,13 +293,7 @@ class TestProcessingStatus:
         from app.tasks.monitor import TaskMonitor
 
         # 模拟进行中的任务
-        pending_task = {
-            "info_hash": "pending123hash",
-            "name": "进行中的任务",
-            "status": 0,  # 进行中
-            "file_id": "11111",
-            "add_time": 1700000000,
-        }
+        pending_task = CloudTask(info_hash="pending123hash", name="进行中的任务", status=0, progress=0, file_id="11111", path="", add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -343,14 +327,8 @@ class TestMultipleLibraries:
         from app.tasks.monitor import TaskMonitor
 
         # 模拟已完成的任务
-        completed_task = {
-            "info_hash": "multi123hash",
-            "name": "多库测试任务",
-            "status": 2,
-            "file_id": "22222",
-            "add_time": 1700000000,
-            "path": "/下载/电影/",  # 匹配第二个库
-        }
+        completed_task = CloudTask(info_hash="multi123hash", name="多库测试任务", status=2, progress=0, file_id="22222", path="/下载/电影/",  # 匹配第二个库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -436,14 +414,8 @@ class TestDatabaseLibraryLookup:
         """场景A: 数据库查询成功，library_name 匹配到配置 → 使用正确 library"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash123abc",
-            "name": "DB查询测试任务",
-            "status": 2,
-            "file_id": "33333",
-            "add_time": 1700000000,
-            "path": "/任意路径/",  # 即使路径不匹配，也应该用数据库中的 library_name
-        }
+        completed_task = CloudTask(info_hash="hash123abc", name="DB查询测试任务", status=2, progress=0, file_id="33333", path="/任意路径/",  # 即使路径不匹配，也应该用数据库中的 library_name
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -522,14 +494,8 @@ class TestDatabaseLibraryLookup:
         """场景B: 数据库查询成功，但 library_name 不在当前配置 → fallback"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash456def",
-            "name": "配置不存在的库",
-            "status": 2,
-            "file_id": "44444",
-            "add_time": 1700000000,
-            "path": "/下载/日韩/",  # 这个路径匹配第二个库
-        }
+        completed_task = CloudTask(info_hash="hash456def", name="配置不存在的库", status=2, progress=0, file_id="44444", path="/下载/日韩/",  # 这个路径匹配第二个库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -604,14 +570,8 @@ class TestDatabaseLibraryLookup:
         """场景C: 数据库查询返回空记录 → fallback 到路径匹配"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash789ghi",
-            "name": "无记录任务",
-            "status": 2,
-            "file_id": "55555",
-            "add_time": 1700000000,
-            "path": "/下载/电影/",  # 匹配电影库
-        }
+        completed_task = CloudTask(info_hash="hash789ghi", name="无记录任务", status=2, progress=0, file_id="55555", path="/下载/电影/",  # 匹配电影库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -677,14 +637,8 @@ class TestDatabaseLibraryLookup:
         """场景D: 数据库查询到记录但 library_name 为 None → fallback"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash000null",
-            "name": "空库名任务",
-            "status": 2,
-            "file_id": "66666",
-            "add_time": 1700000000,
-            "path": "/下载/动漫/",  # 匹配动漫库
-        }
+        completed_task = CloudTask(info_hash="hash000null", name="空库名任务", status=2, progress=0, file_id="66666", path="/下载/动漫/",  # 匹配动漫库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -747,14 +701,8 @@ class TestDatabaseLibraryLookup:
         """场景E: 数据库查询抛出异常 → catch 异常并 fallback"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hij789exception",
-            "name": "异常测试任务",
-            "status": 2,
-            "file_id": "77777",
-            "add_time": 1700000000,
-            "path": "/下载/音乐/",  # 匹配音乐库
-        }
+        completed_task = CloudTask(info_hash="hij789exception", name="异常测试任务", status=2, progress=0, file_id="77777", path="/下载/音乐/",  # 匹配音乐库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -820,14 +768,8 @@ class TestDatabaseLibraryLookup:
         """场景B: 数据库查询成功，但 library_name 不在当前配置 → fallback"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash456def",
-            "name": "配置不存在的库",
-            "status": 2,
-            "file_id": "44444",
-            "add_time": 1700000000,
-            "path": "/下载/日韩/",  # 这个路径匹配第二个库
-        }
+        completed_task = CloudTask(info_hash="hash456def", name="配置不存在的库", status=2, progress=0, file_id="44444", path="/下载/日韩/",  # 这个路径匹配第二个库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -910,14 +852,8 @@ class TestDatabaseLibraryLookup:
         """场景C: 数据库查询返回空记录 → fallback 到路径匹配"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash789ghi",
-            "name": "无记录任务",
-            "status": 2,
-            "file_id": "55555",
-            "add_time": 1700000000,
-            "path": "/下载/电影/",  # 匹配电影库
-        }
+        completed_task = CloudTask(info_hash="hash789ghi", name="无记录任务", status=2, progress=0, file_id="55555", path="/下载/电影/",  # 匹配电影库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -1000,14 +936,8 @@ class TestDatabaseLibraryLookup:
         """场景D: 数据库查询到记录但 library_name 为 None → fallback"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash000null",
-            "name": "空库名任务",
-            "status": 2,
-            "file_id": "66666",
-            "add_time": 1700000000,
-            "path": "/下载/动漫/",  # 匹配动漫库
-        }
+        completed_task = CloudTask(info_hash="hash000null", name="空库名任务", status=2, progress=0, file_id="66666", path="/下载/动漫/",  # 匹配动漫库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -1086,14 +1016,8 @@ class TestDatabaseLibraryLookup:
         from app.tasks.monitor import TaskMonitor
         from unittest.mock import PropertyMock
 
-        completed_task = {
-            "info_hash": "hash456def",
-            "name": "配置不存在的库",
-            "status": 2,
-            "file_id": "44444",
-            "add_time": 1700000000,
-            "path": "/下载/日韩/",  # 这个路径匹配第二个库
-        }
+        completed_task = CloudTask(info_hash="hash456def", name="配置不存在的库", status=2, progress=0, file_id="44444", path="/下载/日韩/",  # 这个路径匹配第二个库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -1182,14 +1106,8 @@ class TestDatabaseLibraryLookup:
         from app.tasks.monitor import TaskMonitor
         from unittest.mock import PropertyMock
 
-        completed_task = {
-            "info_hash": "hash789ghi",
-            "name": "无记录任务",
-            "status": 2,
-            "file_id": "55555",
-            "add_time": 1700000000,
-            "path": "/下载/电影/",  # 匹配电影库
-        }
+        completed_task = CloudTask(info_hash="hash789ghi", name="无记录任务", status=2, progress=0, file_id="55555", path="/下载/电影/",  # 匹配电影库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -1278,14 +1196,8 @@ class TestDatabaseLibraryLookup:
         from app.tasks.monitor import TaskMonitor
         from unittest.mock import PropertyMock
 
-        completed_task = {
-            "info_hash": "hash000null",
-            "name": "空库名任务",
-            "status": 2,
-            "file_id": "66666",
-            "add_time": 1700000000,
-            "path": "/下载/动漫/",  # 匹配动漫库
-        }
+        completed_task = CloudTask(info_hash="hash000null", name="空库名任务", status=2, progress=0, file_id="66666", path="/下载/动漫/",  # 匹配动漫库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -1368,14 +1280,8 @@ class TestDatabaseLibraryLookup:
         """场景B: 数据库查询成功，但 library_name 不在当前配置 → fallback"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash456def",
-            "name": "配置不存在的库",
-            "status": 2,
-            "file_id": "44444",
-            "add_time": 1700000000,
-            "path": "/下载/日韩/",  # 这个路径匹配第二个库
-        }
+        completed_task = CloudTask(info_hash="hash456def", name="配置不存在的库", status=2, progress=0, file_id="44444", path="/下载/日韩/",  # 这个路径匹配第二个库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -1461,14 +1367,8 @@ class TestDatabaseLibraryLookup:
         """场景C: 数据库查询返回空记录 → fallback 到路径匹配"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash789ghi",
-            "name": "无记录任务",
-            "status": 2,
-            "file_id": "55555",
-            "add_time": 1700000000,
-            "path": "/下载/电影/",  # 匹配电影库
-        }
+        completed_task = CloudTask(info_hash="hash789ghi", name="无记录任务", status=2, progress=0, file_id="55555", path="/下载/电影/",  # 匹配电影库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -1552,14 +1452,8 @@ class TestDatabaseLibraryLookup:
         """场景D: 数据库查询到记录但 library_name 为 None → fallback"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash000null",
-            "name": "空库名任务",
-            "status": 2,
-            "file_id": "66666",
-            "add_time": 1700000000,
-            "path": "/下载/动漫/",  # 匹配动漫库
-        }
+        completed_task = CloudTask(info_hash="hash000null", name="空库名任务", status=2, progress=0, file_id="66666", path="/下载/动漫/",  # 匹配动漫库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -1638,14 +1532,8 @@ class TestDatabaseLibraryLookup:
         """场景B: 数据库查询成功，但 library_name 不在当前配置 → fallback"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash456def",
-            "name": "配置不存在的库",
-            "status": 2,
-            "file_id": "44444",
-            "add_time": 1700000000,
-            "path": "/下载/日韩/",  # 这个路径匹配第二个库
-        }
+        completed_task = CloudTask(info_hash="hash456def", name="配置不存在的库", status=2, progress=0, file_id="44444", path="/下载/日韩/",  # 这个路径匹配第二个库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -1729,14 +1617,8 @@ class TestDatabaseLibraryLookup:
         """场景C: 数据库查询返回空记录 → fallback 到路径匹配"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash789ghi",
-            "name": "无记录任务",
-            "status": 2,
-            "file_id": "55555",
-            "add_time": 1700000000,
-            "path": "/下载/电影/",  # 匹配电影库
-        }
+        completed_task = CloudTask(info_hash="hash789ghi", name="无记录任务", status=2, progress=0, file_id="55555", path="/下载/电影/",  # 匹配电影库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -1818,14 +1700,8 @@ class TestDatabaseLibraryLookup:
         """场景D: 数据库查询到记录但 library_name 为 None → fallback"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash000null",
-            "name": "空库名任务",
-            "status": 2,
-            "file_id": "66666",
-            "add_time": 1700000000,
-            "path": "/下载/动漫/",  # 匹配动漫库
-        }
+        completed_task = CloudTask(info_hash="hash000null", name="空库名任务", status=2, progress=0, file_id="66666", path="/下载/动漫/",  # 匹配动漫库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -1897,14 +1773,8 @@ class TestDatabaseLibraryLookup:
         """场景E: 数据库查询抛出异常 → catch 异常并 fallback"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hij789exception",
-            "name": "异常测试任务",
-            "status": 2,
-            "file_id": "77777",
-            "add_time": 1700000000,
-            "path": "/下载/音乐/",  # 匹配音乐库
-        }
+        completed_task = CloudTask(info_hash="hij789exception", name="异常测试任务", status=2, progress=0, file_id="77777", path="/下载/音乐/",  # 匹配音乐库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -1985,14 +1855,8 @@ class TestDatabaseLibraryLookup:
         """场景B: 数据库查询成功，但 library_name 不在当前配置 → fallback"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash456def",
-            "name": "配置不存在的库",
-            "status": 2,
-            "file_id": "44444",
-            "add_time": 1700000000,
-            "path": "/下载/日韩/",  # 这个路径匹配第二个库
-        }
+        completed_task = CloudTask(info_hash="hash456def", name="配置不存在的库", status=2, progress=0, file_id="44444", path="/下载/日韩/",  # 这个路径匹配第二个库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -2076,14 +1940,8 @@ class TestDatabaseLibraryLookup:
         """场景C: 数据库查询返回空记录 → fallback 到路径匹配"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash789ghi",
-            "name": "无记录任务",
-            "status": 2,
-            "file_id": "55555",
-            "add_time": 1700000000,
-            "path": "/下载/电影/",  # 匹配电影库
-        }
+        completed_task = CloudTask(info_hash="hash789ghi", name="无记录任务", status=2, progress=0, file_id="55555", path="/下载/电影/",  # 匹配电影库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -2165,14 +2023,8 @@ class TestDatabaseLibraryLookup:
         """场景D: 数据库查询到记录但 library_name 为 None → fallback"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash000null",
-            "name": "空库名任务",
-            "status": 2,
-            "file_id": "66666",
-            "add_time": 1700000000,
-            "path": "/下载/动漫/",  # 匹配动漫库
-        }
+        completed_task = CloudTask(info_hash="hash000null", name="空库名任务", status=2, progress=0, file_id="66666", path="/下载/动漫/",  # 匹配动漫库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -2246,14 +2098,8 @@ class TestDatabaseLibraryLookup:
         """场景E: 数据库查询抛出异常 → catch 异常并 fallback"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hij789exception",
-            "name": "异常测试任务",
-            "status": 2,
-            "file_id": "77777",
-            "add_time": 1700000000,
-            "path": "/下载/音乐/",  # 匹配音乐库
-        }
+        completed_task = CloudTask(info_hash="hij789exception", name="异常测试任务", status=2, progress=0, file_id="77777", path="/下载/音乐/",  # 匹配音乐库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -2333,14 +2179,8 @@ class TestDatabaseLibraryLookup:
         """场景B: 数据库查询成功，但 library_name 不在当前配置 → fallback"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash456def",
-            "name": "配置不存在的库",
-            "status": 2,
-            "file_id": "44444",
-            "add_time": 1700000000,
-            "path": "/下载/日韩/",  # 这个路径匹配第二个库
-        }
+        completed_task = CloudTask(info_hash="hash456def", name="配置不存在的库", status=2, progress=0, file_id="44444", path="/下载/日韩/",  # 这个路径匹配第二个库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -2423,14 +2263,8 @@ class TestDatabaseLibraryLookup:
         """场景C: 数据库查询返回空记录 → fallback 到路径匹配"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash789ghi",
-            "name": "无记录任务",
-            "status": 2,
-            "file_id": "55555",
-            "add_time": 1700000000,
-            "path": "/下载/电影/",  # 匹配电影库
-        }
+        completed_task = CloudTask(info_hash="hash789ghi", name="无记录任务", status=2, progress=0, file_id="55555", path="/下载/电影/",  # 匹配电影库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -2510,14 +2344,8 @@ class TestDatabaseLibraryLookup:
         """场景D: 数据库查询到记录但 library_name 为 None → fallback"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hash000null",
-            "name": "空库名任务",
-            "status": 2,
-            "file_id": "66666",
-            "add_time": 1700000000,
-            "path": "/下载/动漫/",  # 匹配动漫库
-        }
+        completed_task = CloudTask(info_hash="hash000null", name="空库名任务", status=2, progress=0, file_id="66666", path="/下载/动漫/",  # 匹配动漫库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(
@@ -2589,14 +2417,8 @@ class TestDatabaseLibraryLookup:
         """场景E: 数据库查询抛出异常 → catch 异常并 fallback"""
         from app.tasks.monitor import TaskMonitor
 
-        completed_task = {
-            "info_hash": "hij789exception",
-            "name": "异常测试任务",
-            "status": 2,
-            "file_id": "77777",
-            "add_time": 1700000000,
-            "path": "/下载/音乐/",  # 匹配音乐库
-        }
+        completed_task = CloudTask(info_hash="hij789exception", name="异常测试任务", status=2, progress=0, file_id="77777", path="/下载/音乐/",  # 匹配音乐库
+            add_time=datetime.fromtimestamp(1700000000))
 
         mock_client = AsyncMock()
         mock_client.get_offline_tasks = AsyncMock(

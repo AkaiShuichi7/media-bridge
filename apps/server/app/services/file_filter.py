@@ -1,6 +1,7 @@
 """
 @description 文件过滤服务核心逻辑
-@responsibility 提供视频文件格式判断、大小限制检查及批量文件过滤
+@responsibility 提供视频文件格式判断、大小限制检查及批量文件过滤；
+               消费 CloudFile 标准类型，不感知任何提供商的原始字段
 """
 
 
@@ -39,36 +40,30 @@ def meets_size_requirement(size_bytes: int, min_size_mb: int) -> bool:
     return size_bytes >= min_size_bytes
 
 
-def filter_files(files: list[dict], config: dict) -> list[dict]:
+def filter_files(files: list, config: dict) -> list:
     """
     过滤文件列表，返回符合条件的文件（同时满足格式和大小要求）
 
     Args:
-        files: 文件字典列表，每个字典需要包含 'name' 和 'size' 字段
+        files: CloudFile 对象列表（标准类型，含 name/size/is_directory 字段）
         config: 配置字典，需要包含以下字段：
             - video_formats: 支持的视频格式列表
             - min_transfer_size: 最小文件大小（MB）
 
     Returns:
-        过滤后的文件列表，保留原始文件字典的所有字段
+        过滤后的 CloudFile 列表
     """
     video_formats = config.get("video_formats", [])
     min_transfer_size = config.get("min_transfer_size", 0)
 
     result = []
     for file in files:
-        # 115 API fs_files 返回字段: n=文件名, s=文件大小, fid=文件ID(仅文件有), cid=目录ID
-        # 通过 fid 是否存在判断：目录没有 fid 字段，文件有 fid 字段
-        file_name = file.get("n", "")
-        file_size = file.get("s", 0) or file.get("sz", 0) or file.get("size", 0)
-        is_directory = "fid" not in file  # 目录没有 fid 字段
-
-        if is_directory:
-            # 跳过目录
+        # 跳过目录
+        if file.is_directory:
             continue
 
-        if is_video_file(file_name, video_formats) and meets_size_requirement(
-            file_size, min_transfer_size
+        if is_video_file(file.name, video_formats) and meets_size_requirement(
+            file.size, min_transfer_size
         ):
             result.append(file)
 

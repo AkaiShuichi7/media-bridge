@@ -65,44 +65,25 @@ class FileOrganizer:
                 task_name = task_info.get("name", "")
                 download_path_id = task_info.get("download_path_id", "")
 
-                # 获取任务目录的内容
-                # 先查询任务目录 ID 对应的内容
+                # 获取任务目录的内容（CloudService 返回标准 CloudFile 列表）
                 task_path_id = task_info["path_id"]
-
-                # 使用 list_directory 获取文件列表（内部调用 fs_files）
-                dir_response = await self._client.list_directory(task_path_id)
-
-                if not dir_response.get("state"):
-                    logger.error(f"任务 {task_id} 获取目录列表失败")
-                    return result
-
-                raw_files = dir_response.get("data", [])
-                logger.debug(f"任务 {task_id} 目录下返回 {len(raw_files)} 个条目")
-
-                files = raw_files
+                files = await self._client.list_files(task_path_id)
+                logger.debug(f"任务 {task_id} 目录下返回 {len(files)} 个条目")
 
                 # 如果任务目录里没有文件，尝试在父目录中查找任务名称对应的目录
                 if not files and task_name and download_path_id:
                     logger.debug(f"任务 {task_id} 目录为空，尝试在父目录查找 {task_name}")
-                    parent_response = await self._client.list_directory(
-                        download_path_id
-                    )
+                    parent_files = await self._client.list_files(download_path_id)
 
-                    if parent_response.get("state"):
-                        for item in parent_response.get("data", []):
-                            # 查找任务名称对应的目录
-                            is_dir = "fid" not in item  # 目录没有 fid 字段
-                            if item.get("n") == task_name and is_dir:
-                                task_path_id = str(item.get("cid"))
-                                logger.debug(f"任务 {task_id} 找到补偿目录 ID: {task_path_id}")
+                    for item in parent_files:
+                        # 查找与任务同名的目录
+                        if item.is_directory and item.name == task_name:
+                            task_path_id = item.file_id
+                            logger.debug(f"任务 {task_id} 找到补偿目录 ID: {task_path_id}")
 
-                                # 重新查询任务目录内容
-                                dir_response = await self._client.list_directory(
-                                    task_path_id
-                                )
-                                if dir_response.get("state"):
-                                    files = dir_response.get("data", [])
-                                break
+                            # 重新查询任务目录内容
+                            files = await self._client.list_files(task_path_id)
+                            break
 
                 if not files:
                     logger.warning(f"任务 {task_id} 无文件可整理")
@@ -173,7 +154,7 @@ class FileOrganizer:
 
     async def organize_files_system(
         self,
-        files: list[dict],
+        files: list,
         target_dir: str,
         task_id: str,
         library_config: "LibraryConfig",
@@ -205,9 +186,9 @@ class FileOrganizer:
             return result
 
         for file in files:
-            file_id = file.get("fid", 0)
-            file_name = file.get("n", "")
-            file_size = file.get("sz", 0) or file.get("s", 0)
+            file_id = file.file_id
+            file_name = file.name
+            file_size = file.size
 
             logger.debug(f"准备移动文件: file_id={file_id}, file_name={file_name}")
             try:
@@ -269,7 +250,7 @@ class FileOrganizer:
 
     async def organize_files_xx(
         self,
-        files: list[dict],
+        files: list,
         target_dir: str,
         producer: str,
         xx_config: Optional["XXConfig"],
@@ -302,9 +283,9 @@ class FileOrganizer:
         keywords = xx_config.remove_keywords if xx_config else []
 
         for file in files:
-            file_id = file.get("fid", 0)
-            original_name = file.get("n", "")
-            file_size = file.get("sz", 0) or file.get("s", 0)
+            file_id = file.file_id
+            original_name = file.name
+            file_size = file.size
 
             logger.debug(f"准备移动文件: file_id={file_id}, file_name={original_name}")
             try:
@@ -392,7 +373,7 @@ class FileOrganizer:
             logger.error(f"保存整理记录失败: {e}")
 
     async def cleanup_source(
-        self, task_id: str, info_hash: str, source_files: list[dict]
+        self, task_id: str, info_hash: str, source_files: list
     ) -> None:
         """
         清理源文件和离线任务
@@ -403,8 +384,8 @@ class FileOrganizer:
             source_files: 源文件列表
         """
         for file in source_files:
-            file_id = file.get("fid", 0)
-            file_name = file.get("n", "")
+            file_id = file.file_id
+            file_name = file.name
             logger.debug(f"准备删除源文件: file_id={file_id}, file_name={file_name}")
             try:
                 await self._client.delete_file(file_id)

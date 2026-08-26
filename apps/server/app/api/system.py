@@ -37,7 +37,7 @@ async def get_status(
     if cloud_service is not None:
         try:
             tasks = await cloud_service.get_offline_tasks()
-            active_tasks = sum(1 for task in tasks if task.get("status") == 0)
+            active_tasks = sum(1 for task in tasks if task.status == 0)
         except Exception:
             # Status reporting must remain available when the upstream provider is down.
             pass

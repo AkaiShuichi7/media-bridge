@@ -83,18 +83,12 @@ class TaskMonitor:
             if not system_hashes:
                 return
 
-            # 2. 获取 115 离线任务列表（CloudService 返回已解析的列表）
+            # 2. 获取离线任务列表（CloudService 已翻译为标准 CloudTask 列表）
             tasks = await self._client.get_offline_tasks()
-            if isinstance(tasks, dict):
-                tasks = tasks.get("tasks") or tasks.get("data") or []
-            if not isinstance(tasks, list):
-                logger.error(f"获取离线任务列表返回异常类型: {type(tasks)}")
-                return
 
             # 3. 只处理系统添加的任务
             for task in tasks:
-                info_hash = task.get("info_hash")
-                if info_hash and info_hash in system_hashes:
+                if task.info_hash and task.info_hash in system_hashes:
                     await self._process_task(task)
 
         except Exception as e:
@@ -104,9 +98,9 @@ class TaskMonitor:
 
     async def _process_task(self, task: dict) -> None:
         """处理单个离线任务"""
-        info_hash = task.get("info_hash")
-        status = task.get("status")
-        name = task.get("name", "未知任务")
+        info_hash = task.info_hash
+        status = task.status
+        name = task.name
 
         if info_hash in self._processed_hashes:
             return
@@ -123,7 +117,7 @@ class TaskMonitor:
 
     async def _handle_completed_task(self, task: dict) -> bool:
         """处理已完成的任务 - 触发文件整理"""
-        info_hash = task.get("info_hash")
+        info_hash = task.info_hash
 
         # 通过数据库查询 library_name
         library_config = None
@@ -144,7 +138,7 @@ class TaskMonitor:
 
         if library_config is None:
             # 路径回退: 当 DB 查询失败或无结果时，尝试通过任务路径匹配媒体库
-            task_path = task.get("path", "")
+            task_path = task.path
             for lib in self._config.media.libraries:
                 if task_path.startswith(lib.download_path):
                     library_config = lib
@@ -152,26 +146,26 @@ class TaskMonitor:
                     break
         if library_config is None:
             logger.error(
-                f"无法确定任务 [{task.get('name', 'unknown')}] 的 library 配置，跳过整理"
+                f"无法确定任务 [{task.name}] 的 library 配置，跳过整理"
             )
             return False
 
-        task_path = task.get("path", "")
+        task_path = task.path
         download_path_id = ""
-        logger.debug(f"任务 [{task.get('name', 'unknown')}] 路径信息: {task_path or '(空)'}")
+        logger.debug(f"任务 [{task.name}] 路径信息: {task_path or '(空)'}")
         if task_path:
             parent_path = "/".join(task_path.rstrip("/").split("/")[:-1])
             if parent_path:
                 download_path_id = await self._client.get_path_id(parent_path)
                 logger.debug(
-                    f"任务 [{task.get('name', 'unknown')}] 下载路径 ID: {parent_path} -> {download_path_id}"
+                    f"任务 [{task.name}] 下载路径 ID: {parent_path} -> {download_path_id}"
                 )
 
         task_info = {
-            "task_id": task.get("info_hash"),
-            "info_hash": task.get("info_hash"),
-            "name": task.get("name", "未知任务"),
-            "path_id": str(task.get("file_id", "")),
+            "task_id": task.info_hash,
+            "info_hash": task.info_hash,
+            "name": task.name,
+            "path_id": task.file_id,
             "download_path_id": download_path_id or "",
         }
 
@@ -211,18 +205,18 @@ class TaskMonitor:
         try:
             async with get_session() as session:
                 result = await session.execute(
-                    select(OfflineTask).where(OfflineTask.info_hash == task.get("info_hash"))
+                    select(OfflineTask).where(OfflineTask.info_hash == task.info_hash)
                 )
                 offline_task = result.scalar_one_or_none()
                 if offline_task is None:
-                    offline_task = OfflineTask(info_hash=task.get("info_hash"))
+                    offline_task = OfflineTask(info_hash=task.info_hash)
                     session.add(offline_task)
-                offline_task.name = task.get("name")
+                offline_task.name = task.name
                 offline_task.status = "failed"
-                offline_task.add_time = datetime.fromtimestamp(task.get("add_time", 0))
-                offline_task.error_message = task.get("error_msg", "下载失败")
+                offline_task.add_time = task.add_time
+                offline_task.error_message = "下载失败"
                 await session.commit()
-                logger.info(f"失败任务已记录到数据库: {task.get('name')}")
+                logger.info(f"失败任务已记录到数据库: {task.name}")
         except Exception as e:
             logger.error(f"保存失败任务记录时出错: {e}")
 

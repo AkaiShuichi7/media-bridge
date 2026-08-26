@@ -3,6 +3,7 @@
 @responsibility 测试文件过滤服务的核心功能
 """
 import pytest
+from app.schemas.cloud_types import CloudFile
 from app.services.file_filter import is_video_file, meets_size_requirement, filter_files
 
 
@@ -71,11 +72,11 @@ class TestCombinedFilter:
     def test_combined_filter_success(self):
         """测试 filter_files 筛选符合条件的文件（115 API 返回格式）"""
         files = [
-            {"n": "movie1.mp4", "s": 300 * 1024 * 1024, "m": 0, "fid": "12345"},  # 符合
-            {"n": "movie2.mkv", "s": 250 * 1024 * 1024, "m": 0, "fid": "12346"},  # 符合
-            {"n": "movie3.avi", "s": 100 * 1024 * 1024, "m": 0, "fid": "12347"},  # 不符合（太小）
-            {"n": "image.jpg", "s": 500 * 1024 * 1024, "m": 0, "fid": "12348"},  # 不符合（格式）
-            {"n": "video.mp4", "s": 150 * 1024 * 1024, "m": 0, "fid": "12349"},  # 不符合（太小）
+            CloudFile(file_id="12345", name="movie1.mp4", size=300 * 1024 * 1024, parent_id="1", is_directory=False),  # 符合
+            CloudFile(file_id="12346", name="movie2.mkv", size=250 * 1024 * 1024, parent_id="1", is_directory=False),  # 符合
+            CloudFile(file_id="12347", name="movie3.avi", size=100 * 1024 * 1024, parent_id="1", is_directory=False),  # 不符合（太小）
+            CloudFile(file_id="12348", name="image.jpg", size=500 * 1024 * 1024, parent_id="1", is_directory=False),  # 不符合（格式）
+            CloudFile(file_id="12349", name="video.mp4", size=150 * 1024 * 1024, parent_id="1", is_directory=False),  # 不符合（太小）
         ]
         config = {
             "video_formats": ["mp4", "mkv", "avi", "mov"],
@@ -85,8 +86,8 @@ class TestCombinedFilter:
         result = filter_files(files, config)
 
         assert len(result) == 2
-        assert result[0]["n"] == "movie1.mp4"
-        assert result[1]["n"] == "movie2.mkv"
+        assert result[0].name == "movie1.mp4"
+        assert result[1].name == "movie2.mkv"
 
     def test_combined_filter_empty_list(self):
         """测试 filter_files 处理空文件列表"""
@@ -104,9 +105,9 @@ class TestCombinedFilter:
     def test_combined_filter_no_matches(self):
         """测试 filter_files 无匹配结果"""
         files = [
-            {"n": "document.pdf", "s": 500 * 1024 * 1024, "m": 0, "fid": "12345"},
-            {"n": "image.jpg", "s": 500 * 1024 * 1024, "m": 0, "fid": "12346"},
-            {"n": "small.mp4", "s": 100 * 1024 * 1024, "m": 0, "fid": "12347"},
+            CloudFile(file_id="12345", name="document.pdf", size=500 * 1024 * 1024, parent_id="1", is_directory=False),
+            CloudFile(file_id="12346", name="image.jpg", size=500 * 1024 * 1024, parent_id="1", is_directory=False),
+            CloudFile(file_id="12347", name="small.mp4", size=100 * 1024 * 1024, parent_id="1", is_directory=False),
         ]
         config = {
             "video_formats": ["mp4", "mkv", "avi"],
@@ -120,9 +121,9 @@ class TestCombinedFilter:
     def test_combined_filter_all_match(self):
         """测试 filter_files 全部匹配"""
         files = [
-            {"n": "video1.mp4", "s": 500 * 1024 * 1024, "m": 0, "fid": "12345"},
-            {"n": "video2.mkv", "s": 600 * 1024 * 1024, "m": 0, "fid": "12346"},
-            {"n": "video3.avi", "s": 700 * 1024 * 1024, "m": 0, "fid": "12347"},
+            CloudFile(file_id="12345", name="video1.mp4", size=500 * 1024 * 1024, parent_id="1", is_directory=False),
+            CloudFile(file_id="12346", name="video2.mkv", size=600 * 1024 * 1024, parent_id="1", is_directory=False),
+            CloudFile(file_id="12347", name="video3.avi", size=700 * 1024 * 1024, parent_id="1", is_directory=False),
         ]
         config = {
             "video_formats": ["mp4", "mkv", "avi"],

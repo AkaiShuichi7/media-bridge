@@ -80,23 +80,15 @@ async def add_task(
             status_code=500, detail=f"获取下载目录 ID 失败: {library.download_path}"
         )
 
-    api_result = await cloud_service.add_offline_task(request.magnet, path_id)
-    if not api_result.get("state"):
-        logger.error(f"[add_task] API 返回失败: {api_result}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"添加离线任务失败: {api_result.get('error_msg', '未知错误')}",
-        )
-
-    logger.debug(f"API 响应 keys: {list(api_result.keys())}")
-    logger.debug(f"API state: {api_result.get('state')}")
+    # 适配器翻译为 (成功, 错误信息, info_hash)；115 可能不返回 info_hash
+    add_ok, add_error, api_info_hash = await cloud_service.add_offline_task(
+        request.magnet, path_id
+    )
+    if not add_ok:
+        logger.error(f"[add_task] 添加离线任务失败: {add_error}")
+        raise HTTPException(status_code=500, detail=f"添加离线任务失败: {add_error}")
 
     # 优先级：API 返回的 info_hash > magnet 解析的 > None
-    api_info_hash = (
-        api_result.get("info_hash")
-        or api_result.get("hash")
-        or api_result.get("task_id")
-    )
     final_info_hash = api_info_hash or parsed_info_hash
 
     logger.debug(f"API info_hash: {api_info_hash}")
@@ -168,16 +160,16 @@ async def get_tasks(
     """
     tasks = await cloud_service.get_offline_tasks()
     if status is not None:
-        tasks = [task for task in tasks if task.get("status") == status]
+        tasks = [task for task in tasks if task.status == status]
     total = len(tasks)
     tasks = tasks[(page - 1) * page_size : page * page_size]
     task_items = [
         TaskItem(
-            task_id=task.get("info_hash", ""),
-            name=task.get("name", ""),
-            status=task.get("status", 0),
-            progress=task.get("percent_done", 0),
-            add_time=datetime.fromtimestamp(task.get("add_time", 0)),
+            task_id=task.info_hash,
+            name=task.name,
+            status=task.status,
+            progress=task.progress,
+            add_time=task.add_time,
         )
         for task in tasks
     ]
@@ -212,13 +204,13 @@ async def get_task_detail(
 
     return success_response(
         data=TaskDetailResponse(
-            task_id=task.get("info_hash", ""),
-            name=task.get("name", ""),
-            status=task.get("status", 0),
-            progress=task.get("percent_done", 0),
-            add_time=datetime.fromtimestamp(task.get("add_time", 0)),
-            file_id=str(task.get("file_id")) if task.get("file_id") else None,
-            path=task.get("path"),
+            task_id=task.info_hash,
+            name=task.name,
+            status=task.status,
+            progress=task.progress,
+            add_time=task.add_time,
+            file_id=task.file_id or None,
+            path=task.path or None,
         ),
         message="获取任务详情成功",
     )

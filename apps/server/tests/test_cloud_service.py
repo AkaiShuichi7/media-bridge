@@ -54,9 +54,9 @@ class TestCloudServiceABC:
         """CloudService 定义了 delete_offline_task 抽象方法"""
         assert hasattr(CloudService, "delete_offline_task")
 
-    def test_cloud_service_has_list_directory(self):
-        """CloudService 定义了 list_directory 抽象方法"""
-        assert hasattr(CloudService, "list_directory")
+    def test_cloud_service_no_raw_list_directory(self):
+        """契约不再暴露原始 dict 的 list_directory（原始形状已被适配器挡住）"""
+        assert not hasattr(CloudService, "list_directory")
 
     def test_cloud_service_has_delete_file(self):
         """CloudService 定义了 delete_file 抽象方法"""

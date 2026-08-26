@@ -3,7 +3,10 @@
 @responsibility 测试所有 FastAPI 接口的正确性（使用 app.state 依赖注入模式）
 """
 
+from datetime import datetime
+
 import pytest
+from app.schemas.cloud_types import CloudTask
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest_asyncio
@@ -59,35 +62,42 @@ def mock_p115_client():
     """模拟 115 客户端"""
     client = AsyncMock()
     client.verify_cookies = AsyncMock(return_value=True)
+    # 契约返回 (成功, 错误信息, info_hash) 三元组
     client.add_offline_task = AsyncMock(
-        return_value={"state": True, "info_hash": "abc123hash"}
+        return_value=(True, "", "abc123hash")
     )
     client.get_offline_tasks = AsyncMock(
         return_value=[
-                {
-                    "info_hash": "task1_hash",
-                    "name": "测试任务1",
-                    "status": 2,
-                    "percent_done": 100,
-                    "add_time": 1700000000,
-                },
-                {
-                    "info_hash": "task2_hash",
-                    "name": "测试任务2",
-                    "status": 0,
-                    "percent_done": 50,
-                    "add_time": 1700001000,
-                },
+                CloudTask(
+                    info_hash="task1_hash",
+                    name="测试任务1",
+                    status=2,
+                    progress=100,
+                    file_id="12345",
+                    path="/下载",
+                    add_time=datetime.fromtimestamp(1700000000),
+                ),
+                CloudTask(
+                    info_hash="task2_hash",
+                    name="测试任务2",
+                    status=0,
+                    progress=50,
+                    file_id="",
+                    path="",
+                    add_time=datetime.fromtimestamp(1700001000),
+                ),
             ]
     )
     client.get_offline_task = AsyncMock(
-        return_value={
-            "info_hash": "task1_hash",
-            "name": "测试任务1",
-            "status": 2,
-            "percent_done": 100,
-            "add_time": 1700000000,
-        }
+        return_value=CloudTask(
+            info_hash="task1_hash",
+            name="测试任务1",
+            status=2,
+            progress=100,
+            file_id="12345",
+            path="/下载",
+            add_time=datetime.fromtimestamp(1700000000),
+        )
     )
     client.delete_offline_task = AsyncMock(return_value=True)
     client.get_path_id = AsyncMock(return_value="123456")
