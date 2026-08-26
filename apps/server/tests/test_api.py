@@ -160,7 +160,7 @@ class TestAddTask:
         mock_context.__aenter__ = AsyncMock(return_value=mock_session)
         mock_context.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("app.api.tasks.get_session", return_value=mock_context):
+        with patch("app.services.offline_task_service.get_session", return_value=mock_context):
             response = await client.post(
                 "/api/tasks",
                 json={"magnet": "magnet:?xt=urn:btih:abc123", "library_name": "电影库"},

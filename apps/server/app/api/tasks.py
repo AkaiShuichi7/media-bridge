@@ -7,9 +7,6 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException, Depends, Query
-from loguru import logger
-from sqlalchemy import select
-
 from app.schemas.api import (
     AddTaskRequest,
     AddTaskResponse,
@@ -19,10 +16,9 @@ from app.schemas.api import (
     DeleteTaskResponse,
     success_response,
 )
-from app.models.offline_task import OfflineTask
-from app.core.database import get_session
 from app.core.dependencies import get_cloud_service, get_config
-from app.utils.helpers import parse_info_hash_from_magnet, find_library_by_name
+from app.services.offline_task_service import AddTaskError, OfflineTaskService
+from app.utils.helpers import parse_info_hash_from_magnet
 
 if TYPE_CHECKING:
     from app.services.cloud.base import CloudService
@@ -40,12 +36,12 @@ async def add_task(
     """
     添加离线下载任务。
 
-    先解析 magnet 中的 info_hash，再获取媒体库下载目录 ID，
-    调用 115 接口添加任务并将记录持久化到数据库。
+    业务流程（库校验 → 目录解析 → 云端建任务 → 本地持久化 → 失败补偿回滚）
+    全部下沉到 OfflineTaskService；本函数只做协议转换。
 
     Args:
         request: 包含 magnet、library_name、可选 name 的请求体
-        p115_client: 115 客户端实例（DI 注入）
+        cloud_service: 云盘服务（DI 注入）
         config: 全局配置（DI 注入）
 
     Returns:
@@ -53,91 +49,26 @@ async def add_task(
 
     Raises:
         HTTPException 404: 媒体库不存在
-        HTTPException 500: 获取目录 ID 失败或 115 接口返回错误
+        HTTPException 500: 目录解析失败 / 云端添加失败 / 本地保存失败
     """
-    library = find_library_by_name(config.media.libraries, request.library_name)
-    if library is None:
-        raise HTTPException(
-            status_code=404, detail=f"媒体库 '{request.library_name}' 不存在"
-        )
-
-    # 先从 magnet 解析 info_hash 作为备用（API 可能不返回）
+    # 先从 magnet 解析 info_hash 作为备用（云端可能不返回）
     parsed_info_hash = parse_info_hash_from_magnet(request.magnet)
-    logger.debug(f"从 magnet 解析 info_hash: {parsed_info_hash}")
 
+    service = OfflineTaskService(cloud_service, config)
     try:
-        path_id = await cloud_service.get_path_id(
-            library.download_path, library_name=library.name
+        task_id = await service.add_task(
+            magnet=request.magnet,
+            library_name=request.library_name,
+            name=request.name,
+            parsed_info_hash=parsed_info_hash,
         )
-    except Exception as e:
-        logger.error(f"[add_task] get_path_id throw exception: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取下载目录 ID 报错: {str(e)}")
+    except AddTaskError as e:
+        # 库不存在映射 404，其余业务失败映射 500
+        status = 404 if "不存在" in e.message else 500
+        raise HTTPException(status_code=status, detail=e.message) from e
 
-    logger.debug(f"[add_task] 获取下载目录 ID: {library.download_path} -> {path_id}")
-    if path_id is None:
-        logger.error(f"[add_task] 获取下载目录 ID 失败: {library.download_path}")
-        raise HTTPException(
-            status_code=500, detail=f"获取下载目录 ID 失败: {library.download_path}"
-        )
-
-    # 适配器翻译为 (成功, 错误信息, info_hash)；115 可能不返回 info_hash
-    add_ok, add_error, api_info_hash = await cloud_service.add_offline_task(
-        request.magnet, path_id
-    )
-    if not add_ok:
-        logger.error(f"[add_task] 添加离线任务失败: {add_error}")
-        raise HTTPException(status_code=500, detail=f"添加离线任务失败: {add_error}")
-
-    # 优先级：API 返回的 info_hash > magnet 解析的 > None
-    final_info_hash = api_info_hash or parsed_info_hash
-
-    logger.debug(f"API info_hash: {api_info_hash}")
-    logger.debug(f"最终 info_hash: {final_info_hash}")
-
-    # 保存到数据库（info_hash 可能为 None）
-    try:
-        async with get_session() as session:
-            # 查询是否存在相同 info_hash 的任务
-            db_result = await session.execute(
-                select(OfflineTask).where(OfflineTask.info_hash == final_info_hash)
-            )
-            existing_task = db_result.scalar_one_or_none()
-
-            if existing_task:
-                # 存在则更新字段
-                existing_task.library_name = library.name
-                existing_task.name = (
-                    request.name if request.name else request.magnet[:50]
-                )
-                existing_task.status = "added"
-                logger.info(f"离线任务已更新: info_hash={final_info_hash}")
-            else:
-                # 不存在则创建新记录
-                offline_task = OfflineTask(
-                    info_hash=final_info_hash,
-                    name=request.name if request.name else request.magnet[:50],
-                    library_name=library.name,
-                    status="added",
-                )
-                session.add(offline_task)
-                logger.info(f"离线任务已保存到数据库: info_hash={final_info_hash}")
-
-            await session.commit()
-    except Exception as e:
-        logger.error(f"保存离线任务失败: {e}")
-        if final_info_hash:
-            try:
-                await cloud_service.delete_offline_task(final_info_hash)
-            except Exception as cleanup_error:
-                logger.error(f"回滚 115 离线任务失败: {cleanup_error}")
-        raise HTTPException(
-            status_code=500,
-            detail="任务已提交至 115，但本地记录保存失败；已尝试回滚，请检查日志后重试",
-        ) from e
-
-    # 返回最终的 info_hash（None 时返回空字符串避免 API 响应为 null）
     return success_response(
-        data=AddTaskResponse(task_id=final_info_hash or "", message="离线任务添加成功"),
+        data=AddTaskResponse(task_id=task_id, message="离线任务添加成功"),
         message="离线任务添加成功",
     )
 
