@@ -10,7 +10,7 @@ from loguru import logger
 
 from app.core.database import get_session
 from app.models.organize_record import OrganizeRecord
-from app.services.file_filter import filter_files, is_video_file, meets_size_requirement
+from app.services.file_filter import filter_files
 from app.services.fanhao_parser import (
     remove_keywords,
     normalize_filename,
@@ -117,39 +117,11 @@ class FileOrganizer:
                     ),
                 }
 
-                filtered_files = []
-                skipped_files = []
-                for f in files:
-                    file_name = f.get("n", "")
-                    file_size = f.get("s", 0)
-                    is_directory = "fid" not in f
-
-                    if is_directory:
-                        skipped_files.append(f"{file_name} (目录)")
-                        continue
-
-                    if is_video_file(
-                        file_name, filter_config["video_formats"]
-                    ) and meets_size_requirement(
-                        file_size, filter_config["min_transfer_size"]
-                    ):
-                        filtered_files.append(file_name)
-                    else:
-                        reason = (
-                            "格式不匹配"
-                            if not is_video_file(
-                                file_name, filter_config["video_formats"]
-                            )
-                            else "大小不满足"
-                        )
-                        skipped_files.append(f"{file_name} ({reason})")
-
-                logger.debug(
-                    f"任务 {task_id} 过滤结果: 保留 {len(filtered_files)} 个，跳过 {len(skipped_files)} 个"
-                )
-
+                # 统一走 filter_files 单点过滤（含目录跳过、格式与大小判定）
                 video_files = filter_files(files, filter_config)
-                logger.debug(f"任务 {task_id} 符合条件的视频文件数量: {len(video_files)}")
+                logger.debug(
+                    f"任务 {task_id} 过滤结果: 保留 {len(video_files)} / 共 {len(files)} 个条目"
+                )
 
                 if not video_files:
                     logger.warning(
