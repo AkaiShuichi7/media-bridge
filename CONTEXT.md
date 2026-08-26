@@ -29,9 +29,12 @@ _Avoid_: PathIdCacheService（已删除的旧死模块名，勿再用）
 _Avoid_: p115_client（指模块文件时可用，指类时用规范名）
 
 **CloudService**:
-云盘能力的中立契约（app/services/cloud/base.py）。已知问题：115 原始 dict 仍穿透该 seam，待整改（见架构评审候选 1）。
+云盘能力的中立契约（app/services/cloud/base.py）。seam 两侧只流通 CloudFile / CloudTask 中立类型，115 原始 dict 形状被 P115CloudService 适配器挡在 seam 之内；调用方不得出现 fid/n/sz/cid 等短名字段。
+
+**OfflineTaskService**:
+「添加离线任务」的领域服务（app/services/offline_task_service.py）：库校验 → 目录解析 → 云端建任务 → 本地 UPSERT → 失败补偿回滚。路由层只做协议转换。
 
 ### 扩展（apps/extension）
 
 **磁力捕获（Magnet Capture）**:
-从任意网页的用户复制行为中提取 magnet 链接的管线：page-hook（MAIN world）→ capture（isolated）→ service worker → popup。已知问题：判定规则散布多处，待收拢（架构评审候选 2）。
+从任意网页的用户复制行为中提取 magnet 链接的管线：page-hook（MAIN world）→ capture（isolated）→ service worker → popup。判定规则唯一实现于 magnet.js，待发送状态与 badge 同步唯一拥有者是 captured-state.js。
