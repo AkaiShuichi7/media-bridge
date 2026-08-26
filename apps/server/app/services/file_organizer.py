@@ -1,6 +1,7 @@
 """
 @description 文件整理服务核心逻辑
-@responsibility 处理文件整理、重命名、移动及清理操作
+@responsibility 处理文件整理、重命名、移动及清理操作；
+               配置直接消费 LibraryConfig/MediaConfig/XXConfig 类型对象，不再手工拍平成裸 dict
 """
 
 import asyncio
@@ -22,8 +23,8 @@ from app.services.fanhao_parser import (
 
 
 if TYPE_CHECKING:
+    from app.core.config import LibraryConfig, MediaConfig, XXConfig
     from app.services.cloud.base import CloudService
-
 class FileOrganizer:
     """文件整理服务"""
 
@@ -34,25 +35,22 @@ class FileOrganizer:
     async def organize_task(
         self,
         task_info: dict,
-        library_config: dict,
-        media_config: dict,
-        xx_config: Optional[dict] = None,
+        library_config: "LibraryConfig",
+        media_config: "MediaConfig",
+        xx_config: Optional["XXConfig"] = None,
     ) -> dict:
         """
         整理单个任务的文件
 
         Args:
             task_info: 任务信息，包含 task_id, info_hash, path_id, name
-            library_config: 媒体库配置
-            media_config: 媒体配置（视频格式、最小大小）
-            xx_config: 成人片库配置（可选）
+            library_config: 媒体库配置（LibraryConfig 类型对象）
+            media_config: 媒体配置（MediaConfig 类型对象，提供视频格式与默认大小阈值）
+            xx_config: 成人片库配置（可选，XXConfig 类型对象）
 
         Returns:
             整理结果统计 {success_count, failed_count, skipped_count, errors}
         """
-        # 添加调试日志
-        import traceback
-
         # 初始化结果变量
         result = {
             "success_count": 0,
@@ -110,11 +108,15 @@ class FileOrganizer:
                     logger.warning(f"任务 {task_id} 无文件可整理")
                     return result
 
+                # 库级阈值 <=0 时回落到媒体级默认值
+                effective_min_size = (
+                    library_config.min_transfer_size
+                    if library_config.min_transfer_size > 0
+                    else media_config.min_transfer_size
+                )
                 filter_config = {
-                    "video_formats": media_config.get("video_formats", []),
-                    "min_transfer_size": library_config.get(
-                        "min_transfer_size", media_config.get("min_transfer_size", 0)
-                    ),
+                    "video_formats": media_config.video_formats,
+                    "min_transfer_size": effective_min_size,
                 }
 
                 # 统一走 filter_files 单点过滤（含目录跳过、格式与大小判定）
@@ -129,12 +131,12 @@ class FileOrganizer:
                     )
                     return result
 
-                library_type = library_config.get("type", "system")
+                library_type = library_config.type
 
                 if library_type == "system":
                     organize_result = await self.organize_files_system(
                         video_files,
-                        library_config["target_path"],
+                        library_config.target_path,
                         task_id,
                         library_config,
                     )
@@ -142,9 +144,9 @@ class FileOrganizer:
                     producer = extract_producer(library_type)
                     organize_result = await self.organize_files_xx(
                         video_files,
-                        library_config["target_path"],
+                        library_config.target_path,
                         producer,
-                        xx_config or {},
+                        xx_config,
                         task_id,
                         library_config,
                     )
@@ -160,22 +162,21 @@ class FileOrganizer:
                 return result
         except KeyError as e:
             logger.exception(
-                f"整理任务缺少必要字段: {e}; task_id={task_info.get('task_id')}, library={library_config.get('name')}"
+                f"整理任务缺少必要字段: {e}; task_id={task_info.get('task_id')}, library={library_config.name}"
             )
             raise
         except Exception as e:
             logger.exception(
-                f"整理任务失败: {e}; task_id={task_info.get('task_id')}, library={library_config.get('name')}"
+                f"整理任务失败: {e}; task_id={task_info.get('task_id')}, library={library_config.name}"
             )
             raise
-
 
     async def organize_files_system(
         self,
         files: list[dict],
         target_dir: str,
         task_id: str,
-        library_config: dict,
+        library_config: "LibraryConfig",
     ) -> dict:
         """
         system 类型整理 - 直接移动文件到目标目录
@@ -184,7 +185,7 @@ class FileOrganizer:
             files: 待整理文件列表
             target_dir: 目标目录路径
             task_id: 任务 ID
-            library_config: 媒体库配置
+            library_config: 媒体库配置（LibraryConfig 类型对象）
 
         Returns:
             整理结果统计
@@ -197,6 +198,7 @@ class FileOrganizer:
         }
 
         target_id = await self._client.get_path_id(target_dir)
+
         if not target_id:
             logger.error(f"无法获取目标目录 ID: {target_dir}")
             result["failed_count"] = len(files)
@@ -209,12 +211,8 @@ class FileOrganizer:
 
             logger.debug(f"准备移动文件: file_id={file_id}, file_name={file_name}")
             try:
-                move_response = await self._client.move_file(file_id, target_id)
-
-                if isinstance(move_response, dict):
-                    move_ok = move_response.get("state", False)
-                else:
-                    move_ok = bool(move_response)
+                # CloudService 契约保证 move_file 返回 bool
+                move_ok = await self._client.move_file(file_id, target_id)
 
                 if move_ok:
                     result["success_count"] += 1
@@ -227,16 +225,14 @@ class FileOrganizer:
                             "target_path": f"{target_dir}/{file_name}",
                             "file_name": file_name,
                             "file_size": file_size,
-                            "library_name": library_config.get("name", ""),
+                            "library_name": library_config.name,
                             "status": "success",
                             "error_message": None,
                         }
                     )
                 else:
                     result["skipped_count"] += 1
-                    logger.warning(
-                        f"文件 {file_name} 跳过: {move_response.get('error', '已存在')}"
-                    )
+                    logger.warning(f"文件 {file_name} 跳过: 移动未成功（可能已存在）")
 
                     await self.save_organize_record(
                         {
@@ -245,9 +241,9 @@ class FileOrganizer:
                             "target_path": f"{target_dir}/{file_name}",
                             "file_name": file_name,
                             "file_size": file_size,
-                            "library_name": library_config.get("name", ""),
+                            "library_name": library_config.name,
                             "status": "skipped",
-                            "error_message": move_response.get("error", "文件已存在"),
+                            "error_message": "移动未成功（可能已存在）",
                         }
                     )
 
@@ -263,7 +259,7 @@ class FileOrganizer:
                         "target_path": f"{target_dir}/{file_name}",
                         "file_name": file_name,
                         "file_size": file_size,
-                        "library_name": library_config.get("name", ""),
+                        "library_name": library_config.name,
                         "status": "failed",
                         "error_message": str(e),
                     }
@@ -276,9 +272,9 @@ class FileOrganizer:
         files: list[dict],
         target_dir: str,
         producer: str,
-        xx_config: dict,
+        xx_config: Optional["XXConfig"],
         task_id: str,
-        library_config: dict,
+        library_config: "LibraryConfig",
     ) -> dict:
         """
         xx-片商类型整理 - 处理番号提取、重命名和移动
@@ -287,9 +283,9 @@ class FileOrganizer:
             files: 待整理文件列表
             target_dir: 目标目录路径
             producer: 片商名称
-            xx_config: 成人片库配置（包含 remove_keywords）
+            xx_config: 成人片库配置（XXConfig 类型对象，提供 remove_keywords）
             task_id: 任务 ID
-            library_config: 媒体库配置
+            library_config: 媒体库配置（LibraryConfig 类型对象）
 
         Returns:
             整理结果统计
@@ -302,7 +298,8 @@ class FileOrganizer:
         }
 
         file_count = len(files)
-        keywords = xx_config.get("remove_keywords", [])
+        # xx_config 缺省时视为空关键词列表（与旧 dict 语义保持一致）
+        keywords = xx_config.remove_keywords if xx_config else []
 
         for file in files:
             file_id = file.get("fid", 0)
@@ -332,22 +329,13 @@ class FileOrganizer:
                     result["errors"].append(f"无法创建目标目录: {target_dir_path}")
                     continue
 
-                rename_response = await self._client.rename_file(
-                    file_id, processed_name
-                )
-                if isinstance(rename_response, dict):
-                    rename_ok = rename_response.get("state", False)
-                else:
-                    rename_ok = bool(rename_response)
+                # CloudService 契约保证 rename_file 返回 bool；失败时仅降级用原文件名
+                rename_ok = await self._client.rename_file(file_id, processed_name)
                 if not rename_ok:
                     logger.warning(f"重命名失败，使用原文件名: {original_name}")
 
-                move_response = await self._client.move_file(file_id, target_id)
-
-                if isinstance(move_response, dict):
-                    move_ok = move_response.get("state", False)
-                else:
-                    move_ok = bool(move_response)
+                # CloudService 契约保证 move_file 返回 bool
+                move_ok = await self._client.move_file(file_id, target_id)
 
                 if move_ok:
                     result["success_count"] += 1
@@ -360,7 +348,7 @@ class FileOrganizer:
                             "target_path": final_target_path,
                             "file_name": processed_name,
                             "file_size": file_size,
-                            "library_name": library_config.get("name", ""),
+                            "library_name": library_config.name,
                             "status": "success",
                             "error_message": None,
                         }
@@ -368,7 +356,7 @@ class FileOrganizer:
                 else:
                     result["skipped_count"] += 1
                     logger.warning(
-                        f"文件 {processed_name} 跳过: {move_response.get('error', '已存在')}"
+                        f"文件 {processed_name} 跳过: 移动未成功（可能已存在）"
                     )
 
             except Exception as e:

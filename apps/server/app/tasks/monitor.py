@@ -175,26 +175,13 @@ class TaskMonitor:
             "download_path_id": download_path_id or "",
         }
 
-        media_config = {
-            "video_formats": self._config.media.video_formats,
-            "min_transfer_size": self._config.media.min_transfer_size,
-        }
-
-        xx_config = None
-        if hasattr(self._config.media, "xx") and self._config.media.xx:
-            xx_config = {"remove_keywords": self._config.media.xx.remove_keywords}
-
-        lib_dict = {
-            "name": library_config.name,
-            "download_path": library_config.download_path,
-            "target_path": library_config.target_path,
-            "type": library_config.type,
-            "min_transfer_size": library_config.min_transfer_size,
-        }
+        # xx 配置可选：未配置时传 None，organizer 内部按空关键词处理
+        xx_config = self._config.media.xx if self._config.media.xx else None
 
         try:
+            # 配置对象直接透传，不再手工拍平成裸 dict
             result = await self._organizer.organize_task(
-                task_info, lib_dict, media_config, xx_config
+                task_info, library_config, self._config.media, xx_config
             )
             logger.info(
                 f"任务整理完成: 成功 {result['success_count']}, "

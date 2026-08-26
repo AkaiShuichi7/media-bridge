@@ -514,8 +514,8 @@ class TestDatabaseLibraryLookup:
             # 验证整理被调用
             mock_organizer.organize_task.assert_called_once()
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]
-            assert lib_dict["name"] == "日韩库"
+            library_config = call_args[0][1]
+            assert library_config.name == "日韩库"
 
     @pytest.mark.asyncio
     async def test_db_lookup_library_not_in_config(self):
@@ -596,8 +596,8 @@ class TestDatabaseLibraryLookup:
             # 应该 fallback 到路径匹配（日韩库）
             mock_organizer.organize_task.assert_called_once()
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]
-            assert lib_dict["name"] == "日韩库"
+            library_config = call_args[0][1]
+            assert library_config.name == "日韩库"
 
     @pytest.mark.asyncio
     async def test_db_lookup_empty_result(self):
@@ -669,8 +669,8 @@ class TestDatabaseLibraryLookup:
             # 应该 fallback 到路径匹配（电影库）
             mock_organizer.organize_task.assert_called_once()
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]
-            assert lib_dict["name"] == "电影库"
+            library_config = call_args[0][1]
+            assert library_config.name == "电影库"
 
     @pytest.mark.asyncio
     async def test_db_lookup_null_library_name(self):
@@ -811,9 +811,9 @@ class TestDatabaseLibraryLookup:
             mock_organizer.organize_task.assert_called_once()
             # 验证使用的是日韩库（从数据库查询到的）
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]  # 第二个参数是 lib_dict
-            assert lib_dict["name"] == "日韩库"
-            assert lib_dict["target_path"] == "/目标/日韩"
+            library_config = call_args[0][1]  # 第二个参数是 LibraryConfig 对象
+            assert library_config.name == "日韩库"
+            assert library_config.target_path == "/目标/日韩"
 
     @pytest.mark.asyncio
     async def test_db_lookup_library_not_in_config(self):
@@ -902,8 +902,8 @@ class TestDatabaseLibraryLookup:
             # 应该 fallback 到路径匹配（日韩库）
             mock_organizer.organize_task.assert_called_once()
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]
-            assert lib_dict["name"] == "日韩库"
+            library_config = call_args[0][1]
+            assert library_config.name == "日韩库"
 
     @pytest.mark.asyncio
     async def test_db_lookup_empty_result(self):
@@ -992,8 +992,8 @@ class TestDatabaseLibraryLookup:
             # 应该 fallback 到路径匹配（电影库）
             mock_organizer.organize_task.assert_called_once()
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]
-            assert lib_dict["name"] == "电影库"
+            library_config = call_args[0][1]
+            assert library_config.name == "电影库"
 
     @pytest.mark.asyncio
     async def test_db_lookup_null_library_name(self):
@@ -1076,9 +1076,9 @@ class TestDatabaseLibraryLookup:
             mock_organizer.organize_task.assert_called_once()
             # 验证使用的是日韩库（从数据库查询到的）
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]  # 第二个参数是 lib_dict
-            assert lib_dict["name"] == "日韩库"
-            assert lib_dict["target_path"] == "/目标/日韩"
+            library_config = call_args[0][1]  # 第二个参数是 LibraryConfig 对象
+            assert library_config.name == "日韩库"
+            assert library_config.target_path == "/目标/日韩"
 
     @pytest.mark.asyncio
     async def test_db_lookup_library_not_in_config(self):
@@ -1173,8 +1173,8 @@ class TestDatabaseLibraryLookup:
             # 应该 fallback 到路径匹配（日韩库）
             mock_organizer.organize_task.assert_called_once()
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]
-            assert lib_dict["name"] == "日韩库"
+            library_config = call_args[0][1]
+            assert library_config.name == "日韩库"
 
     @pytest.mark.asyncio
     async def test_db_lookup_empty_result(self):
@@ -1269,8 +1269,8 @@ class TestDatabaseLibraryLookup:
             # 应该 fallback 到路径匹配（电影库）
             mock_organizer.organize_task.assert_called_once()
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]
-            assert lib_dict["name"] == "电影库"
+            library_config = call_args[0][1]
+            assert library_config.name == "电影库"
 
     @pytest.mark.asyncio
     async def test_db_lookup_null_library_name(self):
@@ -1359,9 +1359,9 @@ class TestDatabaseLibraryLookup:
             mock_organizer.organize_task.assert_called_once()
             # 验证使用的是日韩库（从数据库查询到的）
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]  # 第二个参数是 lib_dict
-            assert lib_dict["name"] == "日韩库"
-            assert lib_dict["target_path"] == "/目标/日韩"
+            library_config = call_args[0][1]  # 第二个参数是 LibraryConfig 对象
+            assert library_config.name == "日韩库"
+            assert library_config.target_path == "/目标/日韩"
 
     @pytest.mark.asyncio
     async def test_db_lookup_library_not_in_config(self):
@@ -1453,8 +1453,8 @@ class TestDatabaseLibraryLookup:
             # 应该 fallback 到路径匹配（日韩库）
             mock_organizer.organize_task.assert_called_once()
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]
-            assert lib_dict["name"] == "日韩库"
+            library_config = call_args[0][1]
+            assert library_config.name == "日韩库"
 
     @pytest.mark.asyncio
     async def test_db_lookup_empty_result(self):
@@ -1544,8 +1544,8 @@ class TestDatabaseLibraryLookup:
             # 应该 fallback 到路径匹配（电影库）
             mock_organizer.organize_task.assert_called_once()
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]
-            assert lib_dict["name"] == "电影库"
+            library_config = call_args[0][1]
+            assert library_config.name == "电影库"
 
     @pytest.mark.asyncio
     async def test_db_lookup_null_library_name(self):
@@ -1629,9 +1629,9 @@ class TestDatabaseLibraryLookup:
             mock_organizer.organize_task.assert_called_once()
             # 验证使用的是日韩库（从数据库查询到的）
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]  # 第二个参数是 lib_dict
-            assert lib_dict["name"] == "日韩库"
-            assert lib_dict["target_path"] == "/目标/日韩"
+            library_config = call_args[0][1]  # 第二个参数是 LibraryConfig 对象
+            assert library_config.name == "日韩库"
+            assert library_config.target_path == "/目标/日韩"
 
     @pytest.mark.asyncio
     async def test_db_lookup_library_not_in_config(self):
@@ -1721,8 +1721,8 @@ class TestDatabaseLibraryLookup:
             # 应该 fallback 到路径匹配（日韩库）
             mock_organizer.organize_task.assert_called_once()
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]
-            assert lib_dict["name"] == "日韩库"
+            library_config = call_args[0][1]
+            assert library_config.name == "日韩库"
 
     @pytest.mark.asyncio
     async def test_db_lookup_empty_result(self):
@@ -1810,8 +1810,8 @@ class TestDatabaseLibraryLookup:
             # 应该 fallback 到路径匹配（电影库）
             mock_organizer.organize_task.assert_called_once()
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]
-            assert lib_dict["name"] == "电影库"
+            library_config = call_args[0][1]
+            assert library_config.name == "电影库"
 
     @pytest.mark.asyncio
     async def test_db_lookup_null_library_name(self):
@@ -1976,9 +1976,9 @@ class TestDatabaseLibraryLookup:
             mock_organizer.organize_task.assert_called_once()
             # 验证使用的是日韩库（从数据库查询到的）
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]  # 第二个参数是 lib_dict
-            assert lib_dict["name"] == "日韩库"
-            assert lib_dict["target_path"] == "/目标/日韩"
+            library_config = call_args[0][1]  # 第二个参数是 LibraryConfig 对象
+            assert library_config.name == "日韩库"
+            assert library_config.target_path == "/目标/日韩"
 
     @pytest.mark.asyncio
     async def test_db_lookup_library_not_in_config(self):
@@ -2068,8 +2068,8 @@ class TestDatabaseLibraryLookup:
             # 应该 fallback 到路径匹配（日韩库）
             mock_organizer.organize_task.assert_called_once()
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]
-            assert lib_dict["name"] == "日韩库"
+            library_config = call_args[0][1]
+            assert library_config.name == "日韩库"
 
     @pytest.mark.asyncio
     async def test_db_lookup_empty_result(self):
@@ -2157,8 +2157,8 @@ class TestDatabaseLibraryLookup:
             # 应该 fallback 到路径匹配（电影库）
             mock_organizer.organize_task.assert_called_once()
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]
-            assert lib_dict["name"] == "电影库"
+            library_config = call_args[0][1]
+            assert library_config.name == "电影库"
 
     @pytest.mark.asyncio
     async def test_db_lookup_null_library_name(self):
@@ -2324,9 +2324,9 @@ class TestDatabaseLibraryLookup:
             mock_organizer.organize_task.assert_called_once()
             # 验证使用的是日韩库（从数据库查询到的）
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]  # 第二个参数是 lib_dict
-            assert lib_dict["name"] == "日韩库"
-            assert lib_dict["target_path"] == "/目标/日韩"
+            library_config = call_args[0][1]  # 第二个参数是 LibraryConfig 对象
+            assert library_config.name == "日韩库"
+            assert library_config.target_path == "/目标/日韩"
 
     @pytest.mark.asyncio
     async def test_db_lookup_library_not_in_config(self):
@@ -2415,8 +2415,8 @@ class TestDatabaseLibraryLookup:
             # 应该 fallback 到路径匹配（日韩库）
             mock_organizer.organize_task.assert_called_once()
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]
-            assert lib_dict["name"] == "日韩库"
+            library_config = call_args[0][1]
+            assert library_config.name == "日韩库"
 
     @pytest.mark.asyncio
     async def test_db_lookup_empty_result(self):
@@ -2502,8 +2502,8 @@ class TestDatabaseLibraryLookup:
             # 应该 fallback 到路径匹配（电影库）
             mock_organizer.organize_task.assert_called_once()
             call_args = mock_organizer.organize_task.call_args
-            lib_dict = call_args[0][1]
-            assert lib_dict["name"] == "电影库"
+            library_config = call_args[0][1]
+            assert library_config.name == "电影库"
 
     @pytest.mark.asyncio
     async def test_db_lookup_null_library_name(self):
