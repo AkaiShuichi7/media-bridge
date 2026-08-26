@@ -133,8 +133,19 @@ def load_config() -> Config:
     """加载配置文件并应用环境变量覆盖"""
     config_path = get_config_path()
 
+    # Docker 文件挂载陷阱：宿主机不存在该文件时，Docker 会自动创建同名
+    # 目录挂进容器，导致 open() 抛 IsADirectoryError；提前给出可读错误
+    if config_path.is_dir():
+        print(f"错误: 配置路径是一个目录而非文件: {config_path}")
+        print("常见原因: Docker 挂载时宿主机上 config.yaml 不存在，"
+              "Docker 自动创建了同名空目录。")
+        print(f"修复: 在宿主机上删除该目录，创建真正的配置文件后重启：")
+        print(f"  rm -rf {config_path}")
+        print(f"  cp config.example.yaml {config_path}  # 然后编辑填入实际配置")
+        sys.exit(1)
+
     # 配置文件不存在时生成模板并退出
-    if not config_path.exists():
+    if not config_path.is_file():
         _generate_config_template(config_path)
         print(f"错误: 配置文件不存在: {config_path}")
         print(f"已生成配置模板: {config_path.parent / 'config.example.yaml'}")
