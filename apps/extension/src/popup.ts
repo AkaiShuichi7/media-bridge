@@ -1,14 +1,41 @@
+/**
+ * @description 磁力任务助手弹窗
+ * @responsibility 展示捕获的磁力链接、配置服务器连接并提交离线任务；
+ *               捕获状态的读写复用 captured-state.js，判定复用 magnet.js，
+ *               渲染统一经 escapeHtml 转义防止注入，版本号从 manifest 读取
+ */
 import './popup.css'
+import { isMagnetLink } from '../public/magnet.js'
+import { clearCapturedMagnet, loadCapturedMagnet, storeCapturedMagnet } from '../public/captured-state.js'
 
 type Library = { name: string }
 type Settings = { serverUrl: string; token: string }
 type CapturedMagnet = { value: string; title?: string }
 
 const app = document.querySelector<HTMLElement>('#app')!
+// 版本号唯一来源是 manifest.json，不再硬编码第二份
+const VERSION = chrome.runtime.getManifest().version
 const state: { settings: Settings; magnet?: CapturedMagnet; libraries: Library[]; isSubmitting: boolean } = {
   settings: { serverUrl: '', token: '' },
   libraries: [],
   isSubmitting: false,
+}
+
+/**
+ * HTML 转义：磁力标题来自任意网页 document.title，属不可信输入。
+ *
+ * @param value 原始字符串
+ * @returns 转义后的安全 HTML 片段
+ */
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!)
+}
+
+/**
+ * 属性值转义（用于 input value / option value 等属性位置）。
+ */
+function escapeAttr(value: string) {
+  return escapeHtml(value)
 }
 
 function normalizedServerUrl(value: string) {
@@ -72,9 +99,9 @@ async function submitTask() {
   let errorMessage: string | undefined
   try {
     await api('/api/tasks', { method: 'POST', body: JSON.stringify({ magnet: state.magnet.value, library_name: libraryName, name: state.magnet.title || undefined }) })
-    await chrome.storage.local.remove('capturedMagnet')
+    // 提交成功后清除捕获状态（badge 同步收敛在 captured-state 内）
+    await clearCapturedMagnet()
     state.magnet = undefined
-    chrome.action.setBadgeText({ text: '' })
     render()
     show('离线任务已提交到 MediaBridge。')
     window.setTimeout(() => window.close(), 2000)
@@ -90,13 +117,13 @@ async function submitTask() {
 async function readClipboardManually() {
   try {
     const value = await navigator.clipboard.readText()
-    if (!/^magnet:\?xt=urn:btih:/i.test(value.trim())) {
+    if (!isMagnetLink(value)) {
       show('剪贴板中未找到有效的磁力链接。', true)
       return
     }
-    state.magnet = { value: value.trim() }
-    await chrome.storage.local.set({ capturedMagnet: state.magnet })
-    await chrome.action.setBadgeText({ text: '1' })
+    // 状态写入与 badge 同步收敛在 captured-state 内
+    const stored = await storeCapturedMagnet(value)
+    if (stored) state.magnet = await loadCapturedMagnet()
     render()
     show('已从剪贴板读取磁力链接。')
   } catch {
@@ -106,8 +133,7 @@ async function readClipboardManually() {
 
 async function discardCapturedMagnet() {
   state.magnet = undefined
-  await chrome.storage.local.remove('capturedMagnet')
-  await chrome.action.setBadgeText({ text: '' })
+  await clearCapturedMagnet()
   render()
   show('已取消本次待发送任务。')
   window.setTimeout(() => window.close(), 100)
@@ -116,14 +142,15 @@ async function discardCapturedMagnet() {
 function render() {
   const configured = Boolean(state.settings.serverUrl && state.settings.token)
   const hasMagnet = Boolean(state.magnet)
+  // 所有动态值经转义后内插（title/value 来自不可信页面与剪贴板）
   app.innerHTML = `
-    <section class="header"><strong>MediaBridge</strong><span>磁力任务助手 v0.1.10</span></section>
-    <section class="card"><label>MediaBridge 地址<input id="server-url" type="url" placeholder="https://media.example.com" value="${state.settings.serverUrl}" /></label>
-    <label>访问令牌<input id="token" type="password" placeholder="mb_…" value="${state.settings.token}" /></label>
+    <section class="header"><strong>MediaBridge</strong><span>磁力任务助手 v${VERSION}</span></section>
+    <section class="card"><label>MediaBridge 地址<input id="server-url" type="url" placeholder="https://media.example.com" value="${escapeAttr(state.settings.serverUrl)}" /></label>
+    <label>访问令牌<input id="token" type="password" placeholder="mb_…" value="${escapeAttr(state.settings.token)}" /></label>
     <button id="save" class="secondary">保存并连接</button></section>
     <section class="card ${hasMagnet ? '' : 'empty'}"><h2>已捕获的磁力链接</h2>
-      ${hasMagnet ? `<p class="title">${state.magnet?.title || '当前页面资源'}</p><code>${state.magnet?.value}</code>
-      <label>目标媒体库<select id="library"><option value="">请选择</option>${state.libraries.map((library) => `<option value="${library.name}">${library.name}</option>`).join('')}</select></label>
+      ${hasMagnet ? `<p class="title">${escapeHtml(state.magnet?.title || '当前页面资源')}</p><code>${escapeHtml(state.magnet?.value || '')}</code>
+      <label>目标媒体库<select id="library"><option value="">请选择</option>${state.libraries.map((library) => `<option value="${escapeAttr(library.name)}">${escapeHtml(library.name)}</option>`).join('')}</select></label>
       <div class="actions"><button id="submit" ${configured && state.libraries.length && !state.isSubmitting ? '' : 'disabled'}>${state.isSubmitting ? '<span class="spinner" aria-hidden="true"></span>正在发送…' : '发送到 MediaBridge'}</button><button id="discard" class="secondary" ${state.isSubmitting ? 'disabled' : ''}>取消</button></div>` : '<p>点击页面中的“复制磁力链接”按钮后，链接会显示在这里；插件不会自动提交。</p><button id="read-clipboard" class="secondary">读取剪贴板中的磁力链接</button>'}
     </section><p id="notice" class="notice"></p>`
   document.querySelector('#save')?.addEventListener('click', () => void saveSettings())
@@ -133,9 +160,9 @@ function render() {
 }
 
 async function start() {
-  const stored = await chrome.storage.local.get(['settings', 'capturedMagnet'])
+  const stored = await chrome.storage.local.get('settings')
   state.settings = stored.settings || state.settings
-  state.magnet = stored.capturedMagnet
+  state.magnet = await loadCapturedMagnet()
   render()
   await loadLibraries()
 }
