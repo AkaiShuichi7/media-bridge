@@ -1,7 +1,7 @@
 """
 @description p115client 异步封装
 @responsibility 仅负责 115 API 的调用、重试与限速；
-               路径缓存（PathCache）与路径遍历逻辑通过注入协作，不再直接持有数据库
+               路径缓存（PathCache）与路径遍历逻辑通过注入协作，不再内联 SQL 与缓存算法
 """
 
 import asyncio

@@ -76,14 +76,20 @@ class TestIsTempDirectory:
 
 
 @pytest_asyncio.fixture
-async def cache():
-    """每个测试用独立的内存 SQLite，构造注入式 PathCache"""
+async def cache_env():
+    """每个测试用独立的内存 SQLite；返回 (PathCache, session_maker) 供篡改时间模拟过期"""
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     maker = async_sessionmaker(engine, expire_on_commit=False)
     # get_session 风格的工厂：返回异步上下文管理器
-    return PathCache(lambda: maker())
+    return PathCache(lambda: maker()), maker
+
+
+@pytest.fixture
+def cache(cache_env):
+    """只取 PathCache 本体的简写 fixture"""
+    return cache_env[0]
 
 
 @pytest.mark.asyncio
@@ -115,14 +121,14 @@ async def test_cache_isolated_by_library(cache):
 
 
 @pytest.mark.asyncio
-async def test_cache_ttl_expiry(cache):
+async def test_cache_ttl_expiry(cache_env):
     """过期条目读不到"""
+    cache, maker = cache_env
     await cache.set("default", "/云下载/电影", 12345)
     # 直接篡改数据库时间模拟过期：把 expires_at 改到过去
     from sqlalchemy import text as sql_text
 
-    # 复用工厂拿 session 执行原始 UPDATE
-    async with cache._session_factory() as session:
+    async with maker() as session:
         await session.execute(
             sql_text("UPDATE path_id_cache SET expires_at = :t"),
             {"t": int(time.time()) - 1},
@@ -150,12 +156,13 @@ async def test_cache_rejects_temp_directory(cache):
 
 
 @pytest.mark.asyncio
-async def test_cache_cleanup_expired(cache):
+async def test_cache_cleanup_expired(cache_env):
     """cleanup 只删过期条目"""
+    cache, maker = cache_env
     await cache.set("default", "/稳定", 1)
     from sqlalchemy import text as sql_text
 
-    async with cache._session_factory() as session:
+    async with maker() as session:
         # 造一条已过期条目
         now = int(time.time())
         await session.execute(

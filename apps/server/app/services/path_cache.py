@@ -6,10 +6,11 @@
 
 import re
 import time
-from typing import Any, Awaitable, Callable, Optional
+from contextlib import AbstractAsyncContextManager
+from typing import Any, Callable, Optional
 
 from loguru import logger
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 # 缓存默认过期时间（秒）
 CACHE_TTL_SECONDS = 600
@@ -72,12 +73,13 @@ class PathCache:
 
     def __init__(
         self,
-        session_factory: Callable[[], Awaitable[Any]],
+        session_factory: Callable[[], AbstractAsyncContextManager[Any]],
         ttl_seconds: int = CACHE_TTL_SECONDS,
     ):
         """
         Args:
-            session_factory: 返回异步 session 上下文管理器的工厂函数
+            session_factory: 返回异步 session 上下文管理器的工厂
+                （如 app.core.database.get_session 这类 @asynccontextmanager）
             ttl_seconds: 缓存条目有效期（秒）
         """
         self._session_factory = session_factory
@@ -94,8 +96,8 @@ class PathCache:
         Returns:
             Optional[int]: 缓存的目录 ID；未命中或已过期返回 None
         """
+        # 延迟导入 ORM 模型：避免 services 层在模块加载期反向依赖 models 层
         from app.models.path_id_cache import PathIdCache
-        from sqlalchemy import select
 
         normalized = normalize_path(path)
         now = int(time.time())

@@ -68,6 +68,9 @@ class AppContainer:
         # CloudService 实现封装 P115Client
         self.cloud_service = P115CloudService(self.p115_client)
 
+        # 路径缓存随应用关闭时清理过期条目（防缓存表无限膨胀）
+        self._path_cache = self.p115_client._path_cache
+
         # 文件整理器和监控器依赖 CloudService 接口
         self.file_organizer = FileOrganizer(self.cloud_service)
         self.task_monitor = TaskMonitor(
@@ -80,7 +83,15 @@ class AppContainer:
         logger.info("后台监控任务已启动")
 
     async def shutdown(self) -> None:
-        """停止所有后台服务"""
+        """停止所有后台服务，并顺手清理已过期的路径缓存条目"""
         if self.task_monitor:
             await self.task_monitor.stop_monitor()
             logger.info("后台监控任务已停止")
+
+        # 关闭前批量清理过期缓存条目（失败不阻断关闭流程）
+        if self._path_cache:
+            try:
+                deleted = await self._path_cache.cleanup()
+                logger.info(f"路径缓存清理完成，删除过期条目 {deleted} 条")
+            except Exception as e:
+                logger.warning(f"路径缓存清理失败（忽略）: {e}")
