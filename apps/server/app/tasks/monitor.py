@@ -116,7 +116,18 @@ class TaskMonitor:
             self._processed_hashes.add(info_hash)
 
     async def _handle_completed_task(self, task: dict) -> bool:
-        """处理已完成的任务 - 触发文件整理"""
+        """处理已完成的任务 - 触发文件整理
+
+        结局分为三类，不得混淆：
+        - 成功：success_count > 0 且 failed_count == 0 → 标记 completed 并清理云端任务
+        - 失败：failed_count > 0 → 标记 organize_failed，保留云端任务
+        - 全跳过：success_count == 0 且 failed_count == 0（无文件/无符合条件文件/番号均无法识别）
+          → 标记 organize_skipped 并记录可读原因，保留云端任务
+
+        重试与可观察性语义：organize_failed / organize_skipped 均不会进入下一轮
+        added/downloading 轮询集合（确定性结局自动重试无意义），云端任务与本地
+        error_message 都保留，供 UI 展示与人工排查。
+        """
         info_hash = task.info_hash
 
         # 通过数据库查询 library_name
@@ -186,6 +197,19 @@ class TaskMonitor:
                 await self._update_task_status(
                     info_hash, "organize_failed", "; ".join(result.get("errors", []))
                 )
+                return False
+
+            if result["success_count"] == 0:
+                # 0 成功 0 失败：全部跳过或无可整理文件，不得虚报成功，也不得清理云端任务
+                reason = result.get("message") or (
+                    f"所有 {result['skipped_count']} 个文件均被跳过"
+                    "（番号无法识别或目标文件已存在），没有任何文件被整理"
+                )
+                logger.warning(
+                    f"任务 [{task_info['name']}] 整理后无成功文件，"
+                    f"保留云端任务等待人工处理: {reason}"
+                )
+                await self._update_task_status(info_hash, "organize_skipped", reason)
                 return False
 
             await self._update_task_status(info_hash, "completed")

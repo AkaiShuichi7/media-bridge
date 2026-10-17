@@ -194,6 +194,78 @@ class TestGetTasks:
         assert "tasks" in data["data"]
         assert isinstance(data["data"]["tasks"], list)
 
+    @pytest.mark.asyncio
+    async def test_negative_status_passed_through(self, client, mock_p115_client):
+        """回归测试：云端负数失败状态（如 -1）必须原样透传，不得改写为 1"""
+        mock_p115_client.get_offline_tasks = AsyncMock(
+            return_value=[
+                CloudTask(
+                    info_hash="neg_hash",
+                    name="云端失败任务",
+                    status=-1,
+                    progress=30,
+                    file_id="",
+                    path="",
+                    add_time=datetime.fromtimestamp(1700000000),
+                ),
+                CloudTask(
+                    info_hash="st1_hash",
+                    name="进行中任务",
+                    status=1,
+                    progress=50,
+                    file_id="",
+                    path="",
+                    add_time=datetime.fromtimestamp(1700001000),
+                ),
+            ]
+        )
+
+        response = await client.get("/api/tasks")
+
+        assert response.status_code == 200
+        tasks = response.json()["data"]["tasks"]
+        status_by_hash = {t["task_id"]: t["status"] for t in tasks}
+        # 负数失败状态保持原始语义透传
+        assert status_by_hash["neg_hash"] == -1
+        # 1 不是失败状态，同样不得被改写
+        assert status_by_hash["st1_hash"] == 1
+
+    @pytest.mark.asyncio
+    async def test_error_message_merged_from_db(self, client, mock_p115_client):
+        """回归测试：任务列表合并本地数据库记录的整理失败原因"""
+        mock_result = MagicMock()
+        mock_result.fetchall = MagicMock(
+            return_value=[("task1_hash", "整理失败: 无法创建目标目录")]
+        )
+        mock_session = MagicMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("app.api.tasks.get_session", return_value=mock_ctx):
+            response = await client.get("/api/tasks")
+
+        assert response.status_code == 200
+        tasks = response.json()["data"]["tasks"]
+        message_by_hash = {t["task_id"]: t.get("error_message") for t in tasks}
+        assert message_by_hash["task1_hash"] == "整理失败: 无法创建目标目录"
+        # 无本地记录的任务 error_message 为空
+        assert message_by_hash["task2_hash"] is None
+
+    @pytest.mark.asyncio
+    async def test_error_message_degrades_gracefully_when_db_unavailable(
+        self, client, mock_p115_client
+    ):
+        """回归测试：数据库不可用时任务列表仍可用，error_message 降级为空"""
+        # 不 patch get_session，模拟数据库未初始化（async_session_local 为 None）
+        response = await client.get("/api/tasks")
+
+        assert response.status_code == 200
+        tasks = response.json()["data"]["tasks"]
+        assert len(tasks) == 2
+        assert all(t.get("error_message") is None for t in tasks)
+
 
 class TestGetTaskDetail:
     @pytest.mark.asyncio

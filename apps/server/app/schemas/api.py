@@ -27,9 +27,15 @@ class TaskItem(BaseModel):
     """任务列表中的单个任务信息项。"""
     task_id: str = Field(..., description="任务 ID")
     name: str = Field(..., description="任务名称")
-    status: int = Field(..., description="任务状态（0=进行中，1=失败，2=完成）")
+    status: int = Field(
+        ...,
+        description="任务状态（2=完成，负数=失败，如 -1；其余=进行中。115 原始状态透传）",
+    )
     progress: int = Field(..., description="下载进度（百分比）")
     add_time: datetime = Field(..., description="添加时间")
+    error_message: Optional[str] = Field(
+        None, description="本地整理失败原因（合并自数据库记录，可能为空）"
+    )
 
 
 class TaskListResponse(BaseModel):

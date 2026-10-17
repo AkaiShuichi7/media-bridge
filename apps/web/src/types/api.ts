@@ -7,17 +7,35 @@ export interface ApiResponse<T = unknown> {
   data: T | null
 }
 
-/** 任务状态枚举 */
+/**
+ * 任务状态常量与判定函数。
+ * 云端契约（与后端 monitor.py 一致）：2=完成，负数（如 -1）=失败，其余（0/1 等）=进行中；
+ * 后端对 115 原始状态值透传，负数语义只在 UI 判定层归一化。
+ */
 export const TASK_STATUS = {
-  /** 进行中 */
+  /** 进行中（代表值；0、1 等非负且非完成的状态均为进行中） */
   PENDING: 0,
-  /** 失败 */
-  FAILED: 1,
   /** 完成 */
   COMPLETED: 2,
 } as const
 
-export type TaskStatus = (typeof TASK_STATUS)[keyof typeof TASK_STATUS]
+/** 云端任务状态原始值：2=完成，负数=失败，其余=进行中 */
+export type TaskStatus = number
+
+/** 判断任务是否失败：任何负数状态（如 -1、-2）都表示失败 */
+export function isTaskFailed(status: number): boolean {
+  return status < 0
+}
+
+/** 判断任务是否已完成（status === 2） */
+export function isTaskCompleted(status: number): boolean {
+  return status === TASK_STATUS.COMPLETED
+}
+
+/** 判断任务是否进行中（非完成且非失败，含 0/1 等状态） */
+export function isTaskPending(status: number): boolean {
+  return !isTaskCompleted(status) && !isTaskFailed(status)
+}
 
 /** 整理记录状态枚举 */
 export const ORGANIZE_STATUS = {
@@ -44,12 +62,14 @@ export interface TaskItem {
   task_id: string
   /** 任务名称 */
   name: string
-  /** 任务状态: 0=进行中, 1=失败, 2=完成 */
+  /** 任务状态: 2=完成, 负数=失败(如 -1), 其余=进行中（云端原始值透传） */
   status: TaskStatus
-  /** 下载进度 */
+  /** 下载进度（百分比） */
   progress: number
   /** 添加时间 */
   add_time: string
+  /** 本地整理失败原因（合并自数据库记录，可能为空） */
+  error_message?: string | null
 }
 
 /** 任务列表响应 */

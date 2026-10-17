@@ -49,7 +49,8 @@ class FileOrganizer:
             xx_config: 成人片库配置（可选，XXConfig 类型对象）
 
         Returns:
-            整理结果统计 {success_count, failed_count, skipped_count, errors}
+            整理结果统计 {success_count, failed_count, skipped_count, errors, message}；
+            message 在 0 成功 0 失败的提前返回路径上携带可读原因，供监控层区分“全跳过”结局
         """
         # 初始化结果变量
         result = {
@@ -57,6 +58,7 @@ class FileOrganizer:
             "failed_count": 0,
             "skipped_count": 0,
             "errors": [],
+            "message": None,
         }
 
         try:
@@ -87,6 +89,7 @@ class FileOrganizer:
 
                 if not files:
                     logger.warning(f"任务 {task_id} 无文件可整理")
+                    result["message"] = "任务目录中没有文件可整理"
                     return result
 
                 # 库级阈值 <=0 时回落到媒体级默认值
@@ -109,6 +112,9 @@ class FileOrganizer:
                 if not video_files:
                     logger.warning(
                         f"任务 {task_id} 无符合条件的视频文件 (共查询 {len(files)} 个文件)"
+                    )
+                    result["message"] = (
+                        f"任务目录共 {len(files)} 个文件，无符合条件的视频文件（格式或大小过滤后为空）"
                     )
                     return result
 
@@ -133,6 +139,7 @@ class FileOrganizer:
                     )
                 else:
                     logger.warning(f"未知的媒体库类型: {library_type}")
+                    result["message"] = f"未知的媒体库类型: {library_type}，无法整理"
                     return result
 
                 result["success_count"] = organize_result["success_count"]

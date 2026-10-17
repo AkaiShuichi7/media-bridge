@@ -2488,3 +2488,181 @@ class TestDatabaseLibraryLookup:
 
             # 应该 fallback 到路径匹配（音乐库）
             mock_organizer.organize_task.assert_called_once()
+
+
+def _build_monitor_with_organize_result(organize_result):
+    """构造带指定整理结果的 TaskMonitor，用于测试整理结果分类逻辑。
+
+    Returns:
+        (monitor, mock_client, mock_organizer) 三元组
+    """
+    from app.tasks.monitor import TaskMonitor
+
+    mock_client = AsyncMock()
+    mock_client.get_path_id = AsyncMock(return_value="12345")
+
+    mock_organizer = AsyncMock()
+    mock_organizer.organize_task = AsyncMock(return_value=organize_result)
+
+    mock_lib = MagicMock()
+    mock_lib.name = "测试库"
+    mock_lib.download_path = "/下载/电影"
+    mock_lib.target_path = "/目标/电影"
+    mock_lib.type = "system"
+    mock_lib.min_transfer_size = 100
+
+    mock_config = MagicMock()
+    mock_config.cloud.poll_interval_min = 1
+    mock_config.cloud.poll_interval_max = 2
+    mock_config.media.libraries = [mock_lib]
+    mock_config.media.video_formats = ["mp4", "mkv"]
+    mock_config.media.min_transfer_size = 100
+    mock_config.media.xx = MagicMock(remove_keywords=[])
+
+    monitor = TaskMonitor(
+        p115_client=mock_client,
+        file_organizer=mock_organizer,
+        config=mock_config,
+    )
+    return monitor, mock_client, mock_organizer
+
+
+def _patch_sessions_for_handle_completed(library_name="测试库"):
+    """patch monitor 的 get_session：第 1 次查 library_name，第 2 次更新任务状态。
+
+    Returns:
+        (patcher, offline_task_mock) 二元组；offline_task_mock 用于断言写入的状态
+    """
+    offline_task_mock = MagicMock()
+    offline_task_mock.status = "downloading"
+    offline_task_mock.error_message = None
+
+    call_count = [0]
+
+    def context_factory():
+        call_count[0] += 1
+        mock_session = MagicMock()
+        mock_result = MagicMock()
+        if call_count[0] == 1:
+            # 第一次调用：_handle_completed_task 查询 library_name
+            mock_result.scalar_one_or_none = MagicMock(return_value=library_name)
+        else:
+            # 后续调用：_update_task_status 查询 OfflineTask 记录
+            mock_result.scalar_one_or_none = MagicMock(return_value=offline_task_mock)
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+        return mock_ctx
+
+    patcher = patch("app.tasks.monitor.get_session", side_effect=context_factory)
+    return patcher, offline_task_mock
+
+
+class TestOrganizeOutcomeClassification:
+    """回归测试：整理结果必须区分成功、失败、全跳过三类结局"""
+
+    def _make_completed_task(self, info_hash="outcome_hash"):
+        """构造一个云端已完成（status=2）的任务"""
+        return CloudTask(
+            info_hash=info_hash,
+            name="结局分类任务",
+            status=2,
+            progress=100,
+            file_id="99999",
+            path="",
+            add_time=datetime.fromtimestamp(1700000000),
+        )
+
+    @pytest.mark.asyncio
+    async def test_real_success_marks_completed_and_cleans_cloud_task(self):
+        """有成功文件且无失败 → 标记 completed 并清理云端任务"""
+        monitor, mock_client, _ = _build_monitor_with_organize_result(
+            {
+                "success_count": 2,
+                "failed_count": 0,
+                "skipped_count": 1,
+                "errors": [],
+                "message": None,
+            }
+        )
+
+        patcher, offline_task_mock = _patch_sessions_for_handle_completed()
+        with patcher:
+            result = await monitor._handle_completed_task(self._make_completed_task())
+
+        assert result is True
+        assert offline_task_mock.status == "completed"
+        mock_client.delete_offline_task.assert_awaited_once_with("outcome_hash")
+
+    @pytest.mark.asyncio
+    async def test_all_skipped_not_marked_success_and_cloud_task_kept(self):
+        """0 成功 0 失败（全跳过）→ 不得虚报成功、不得清理云端任务，需记录可读原因"""
+        monitor, mock_client, _ = _build_monitor_with_organize_result(
+            {
+                "success_count": 0,
+                "failed_count": 0,
+                "skipped_count": 3,
+                "errors": [],
+                "message": None,
+            }
+        )
+
+        patcher, offline_task_mock = _patch_sessions_for_handle_completed()
+        with patcher:
+            result = await monitor._handle_completed_task(self._make_completed_task())
+
+        assert result is False
+        # 状态必须是独立于 completed/organize_failed 的“全跳过”
+        assert offline_task_mock.status == "organize_skipped"
+        # 原因必须可读且说明跳过数量
+        assert offline_task_mock.error_message is not None
+        assert "3" in offline_task_mock.error_message
+        assert "跳过" in offline_task_mock.error_message
+        # 云端任务必须保留，供用户排查
+        mock_client.delete_offline_task.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_empty_organize_result_uses_organizer_reason(self):
+        """整理器给出无文件原因时 → 原因透传到任务记录，且不清理云端任务"""
+        monitor, mock_client, _ = _build_monitor_with_organize_result(
+            {
+                "success_count": 0,
+                "failed_count": 0,
+                "skipped_count": 0,
+                "errors": [],
+                "message": "任务目录中没有文件可整理",
+            }
+        )
+
+        patcher, offline_task_mock = _patch_sessions_for_handle_completed()
+        with patcher:
+            result = await monitor._handle_completed_task(self._make_completed_task())
+
+        assert result is False
+        assert offline_task_mock.status == "organize_skipped"
+        assert offline_task_mock.error_message == "任务目录中没有文件可整理"
+        mock_client.delete_offline_task.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_failed_files_marks_failed_and_cloud_task_kept(self):
+        """存在失败文件 → 标记 organize_failed 并保留云端任务（既有行为回归）"""
+        monitor, mock_client, _ = _build_monitor_with_organize_result(
+            {
+                "success_count": 0,
+                "failed_count": 2,
+                "skipped_count": 0,
+                "errors": ["无法创建目标目录: /目标/电影/XX", "移动文件超时"],
+                "message": None,
+            }
+        )
+
+        patcher, offline_task_mock = _patch_sessions_for_handle_completed()
+        with patcher:
+            result = await monitor._handle_completed_task(self._make_completed_task())
+
+        assert result is False
+        assert offline_task_mock.status == "organize_failed"
+        assert "无法创建目标目录" in offline_task_mock.error_message
+        mock_client.delete_offline_task.assert_not_called()

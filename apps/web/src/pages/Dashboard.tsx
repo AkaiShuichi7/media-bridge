@@ -13,9 +13,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { PageContainer } from '@/components/shared/PageContainer'
 import { StatCard } from '@/components/shared/StatCard'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { TaskStatusBadge } from '@/components/shared/StatusBadge'
 import { useStatus, useTasks, useOrganizeRecords, useAddTask, useLibraries } from '@/hooks/queries'
 import { formatDate } from '@/lib/utils'
-import type { TaskItem, LibraryItem } from '@/types/api'
+import {
+  type TaskItem,
+  type LibraryItem,
+  type OrganizeRecordItem,
+  isTaskFailed,
+  isTaskCompleted,
+  isTaskPending,
+} from '@/types/api'
 
 export default function Dashboard() {
   const [addDialogOpen, setAddDialogOpen] = useState(false)
@@ -33,9 +41,10 @@ export default function Dashboard() {
   const recentTasks = allTasks.slice(0, 5)
   const recentRecords = recordsData?.records?.slice(0, 5) || []
 
-  const activeTasks = allTasks.filter((t: TaskItem) => t.status === 0).length
-  const completedTasks = allTasks.filter((t: TaskItem) => t.status === 2).length
-  const failedTasks = allTasks.filter((t: TaskItem) => t.status === 1).length
+  // 云端契约：负数=失败，2=完成，其余=进行中；与任务页筛选保持同一口径
+  const activeTasks = allTasks.filter((t: TaskItem) => isTaskPending(t.status)).length
+  const completedTasks = allTasks.filter((t: TaskItem) => isTaskCompleted(t.status)).length
+  const failedTasks = allTasks.filter((t: TaskItem) => isTaskFailed(t.status)).length
 
   const handleAddTask = async () => {
     if (!magnet.trim() || !libraryName) return
@@ -128,11 +137,23 @@ export default function Dashboard() {
               />
             ) : (
               <div className="space-y-3">
-                {/* @ts-ignore */}
-                {recentTasks.map(task => (
-                  <div key={task.id} className="min-w-0 overflow-hidden rounded-lg border p-3">
-                    <p className="max-w-full truncate text-sm font-medium">{task.name}</p>
-                    <p className="mt-1 max-w-full truncate text-xs text-muted-foreground">{task.magnet}</p>
+                {recentTasks.map((task: TaskItem) => (
+                  <div key={task.task_id} className="min-w-0 overflow-hidden rounded-lg border p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="max-w-full truncate text-sm font-medium" title={task.name}>{task.name}</p>
+                      <TaskStatusBadge status={task.status} />
+                    </div>
+                    <p className="mt-1 max-w-full truncate text-xs text-muted-foreground">
+                      {isTaskPending(task.status) ? `进度 ${task.progress}% · ` : ''}{formatDate(task.add_time)}
+                    </p>
+                    {task.error_message && (
+                      <p
+                        className="mt-1 max-w-full truncate text-xs text-red-500"
+                        title={task.error_message}
+                      >
+                        {task.error_message}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -158,8 +179,7 @@ export default function Dashboard() {
               />
             ) : (
               <div className="space-y-3">
-                {/* @ts-ignore */}
-                {recentRecords.map(record => (
+                {recentRecords.map((record: OrganizeRecordItem) => (
                   <div key={record.id} className="min-w-0 overflow-hidden rounded-lg border p-3">
                     <p className="max-w-full truncate text-sm font-medium" title={record.organized_name}>{record.organized_name}</p>
                     <p className="mt-1 max-w-full truncate text-xs text-muted-foreground" title={record.target_path}>{record.target_path}</p>

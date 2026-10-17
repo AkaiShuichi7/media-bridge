@@ -7,6 +7,11 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException, Depends, Query
+from loguru import logger
+from sqlalchemy import select
+
+from app.core.database import get_session
+from app.models.offline_task import OfflineTask
 from app.schemas.api import (
     AddTaskRequest,
     AddTaskResponse,
@@ -25,6 +30,32 @@ if TYPE_CHECKING:
     from app.core.config import Config
 
 router = APIRouter()
+
+
+async def _load_error_messages(info_hashes: list[str]) -> dict[str, str]:
+    """从本地数据库加载任务的整理失败原因，按 info_hash 建立映射。
+
+    数据库不可用时降级为空映射，保证任务列表接口仍可用。
+
+    Args:
+        info_hashes: 当前页任务的 info_hash 列表
+
+    Returns:
+        {info_hash: 失败原因} 字典，仅包含有原因的记录
+    """
+    if not info_hashes:
+        return {}
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(OfflineTask.info_hash, OfflineTask.error_message).where(
+                    OfflineTask.info_hash.in_(info_hashes)
+                )
+            )
+            return {row[0]: row[1] for row in result.fetchall() if row[1]}
+    except Exception as e:
+        logger.warning(f"查询任务本地失败原因失败，列表将不含原因: {e}")
+        return {}
 
 
 @router.post("/tasks")
@@ -94,6 +125,8 @@ async def get_tasks(
         tasks = [task for task in tasks if task.status == status]
     total = len(tasks)
     tasks = tasks[(page - 1) * page_size : page * page_size]
+    # 合并本地数据库记录的整理失败原因，供 UI 展示
+    error_messages = await _load_error_messages([task.info_hash for task in tasks])
     task_items = [
         TaskItem(
             task_id=task.info_hash,
@@ -101,6 +134,7 @@ async def get_tasks(
             status=task.status,
             progress=task.progress,
             add_time=task.add_time,
+            error_message=error_messages.get(task.info_hash),
         )
         for task in tasks
     ]

@@ -6,9 +6,15 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { TaskStatusBadge } from '@/components/shared/StatusBadge'
 import { useTasks, useDeleteTask } from '@/hooks/queries'
 import { formatDate, truncate } from '@/lib/utils'
-import { TASK_STATUS, type TaskItem } from '@/types/api'
+import {
+  type TaskItem,
+  isTaskFailed,
+  isTaskCompleted,
+  isTaskPending,
+} from '@/types/api'
 
 export default function Tasks() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -18,14 +24,18 @@ export default function Tasks() {
   const deleteTask = useDeleteTask()
 
   const allTasks: TaskItem[] = tasksData?.tasks || []
-  const filteredTasks = allTasks.filter((t: TaskItem) => 
-    statusFilter === 'all' ? true : t.status === parseInt(statusFilter)
-  )
+  // 云端契约：负数=失败，2=完成，其余=进行中；筛选按语义分类而非裸数值
+  const filteredTasks = allTasks.filter((t: TaskItem) => {
+    if (statusFilter === 'all') return true
+    if (statusFilter === 'failed') return isTaskFailed(t.status)
+    if (statusFilter === 'completed') return isTaskCompleted(t.status)
+    return isTaskPending(t.status)
+  })
 
   const countAll = allTasks.length
-  const countPending = allTasks.filter((t: TaskItem) => t.status === TASK_STATUS.PENDING).length
-  const countCompleted = allTasks.filter((t: TaskItem) => t.status === TASK_STATUS.COMPLETED).length
-  const countFailed = allTasks.filter((t: TaskItem) => t.status === TASK_STATUS.FAILED).length
+  const countPending = allTasks.filter((t: TaskItem) => isTaskPending(t.status)).length
+  const countCompleted = allTasks.filter((t: TaskItem) => isTaskCompleted(t.status)).length
+  const countFailed = allTasks.filter((t: TaskItem) => isTaskFailed(t.status)).length
 
   const handleDeleteTask = async () => {
     if (deleteTaskId === null) return
@@ -39,9 +49,9 @@ export default function Tasks() {
         <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full sm:w-auto">
           <TabsList>
             <TabsTrigger value="all">全部 {countAll}</TabsTrigger>
-            <TabsTrigger value="0">进行中 {countPending}</TabsTrigger>
-            <TabsTrigger value="2">完成 {countCompleted}</TabsTrigger>
-            <TabsTrigger value="1">失败 {countFailed}</TabsTrigger>
+            <TabsTrigger value="pending">进行中 {countPending}</TabsTrigger>
+            <TabsTrigger value="completed">完成 {countCompleted}</TabsTrigger>
+            <TabsTrigger value="failed">失败 {countFailed}</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -58,11 +68,21 @@ export default function Tasks() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <p className="truncate font-medium">{task.name || '未命名任务'}</p>
+                    <TaskStatusBadge status={task.status} />
                   </div>
                   <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
                     <span>ID: {truncate(task.task_id, 16)}</span>
                     <span>{formatDate(task.add_time)}</span>
+                    {isTaskPending(task.status) && <span>进度 {task.progress}%</span>}
                   </div>
+                  {task.error_message && (
+                    <p
+                      className="mt-1 max-w-full truncate text-xs text-red-500"
+                      title={task.error_message}
+                    >
+                      {task.error_message}
+                    </p>
+                  )}
                 </div>
                 <Button variant="ghost" size="icon" className="ml-2 flex-shrink-0 text-muted-foreground hover:text-red-500" onClick={() => setDeleteTaskId(task.task_id)}>
                   <Trash2 className="h-4 w-4" />
