@@ -1,0 +1,15 @@
+# MediaBridge 服务端直接依赖；requirements.txt 由 uv pip compile 生成完整锁定版本。
+fastapi==0.143.3
+uvicorn[standard]==0.54.0
+sqlalchemy[asyncio]==2.1.5
+aiosqlite==0.22.1
+p115client==0.0.9.7.2
+# p115client 0.0.9.7.2 要求此 API 代际，显式固定以避免导入接口漂移。
+python-concurrenttools==0.1.9
+loguru==0.7.3
+PyYAML==6.0.3
+pydantic==2.14.1
+pydantic-settings==2.16.0
+pytest==9.1.1
+pytest-asyncio==1.4.0
+httpx==0.28.1

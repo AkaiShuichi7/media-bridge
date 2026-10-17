@@ -6,7 +6,7 @@
     "moduleResolution": "bundler",
     "strict": true,
     "noEmit": true,
-    "types": []
+    "types": ["vite/client"]
   },
   "include": ["src"]
 }

@@ -87,6 +87,7 @@ export default function Settings() {
 
   useEffect(() => {
     if (configData) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 配置查询结果需同步到可编辑表单的本地状态。
       setFormData({
         p115: {
           poll_interval_min: configData.p115.poll_interval_min,
@@ -108,6 +109,7 @@ export default function Settings() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 页面挂载后异步加载并展示访问令牌。
     void loadAccessTokens()
   }, [])
 
