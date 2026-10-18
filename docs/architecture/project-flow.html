@@ -19,9 +19,9 @@
   <header>
     <div class="eyebrow">MEDIABRIDGE · PROJECT MAP</div>
     <h1>项目全流程图</h1>
-    <p class="subtitle">覆盖 Web 与扩展入口、115 离线下载、后台监控、媒体库归档、数据持久化和 Docker 运行。<br>按当前仓库实现绘制，版本基线：<strong>b1839c4</strong>。</p>
+    <p class="subtitle">覆盖 Web 与扩展与 Agent 入口、115 离线下载、后台监控、媒体库归档、数据持久化和 Docker 运行。<br>按当前仓库实现绘制，版本基线：<strong>055a1fe</strong>。</p>
   </header>
-  <nav aria-label="流程图目录"><a href="#architecture">系统架构</a><a href="#lifecycle">任务生命周期</a><a href="#extension">扩展捕获</a><a href="#runtime">部署与启动</a><a href="./project-flow.md">Mermaid 源码（供 Agent 使用）</a></nav>
+  <nav aria-label="流程图目录"><a href="#architecture">系统架构</a><a href="#lifecycle">任务生命周期</a><a href="#extension">扩展捕获</a><a href="#agent">Agent 接入</a><a href="#runtime">部署与启动</a><a href="./project-flow.md">Mermaid 源码（供 Agent 使用）</a></nav>
 
   <section id="architecture">
     <h2>1. 系统架构与数据流</h2>
@@ -36,6 +36,8 @@
       <path d="M215 190H270M215 430H270M450 190H500M450 430H470V260H500M680 200H725M930 190H980M930 230H955V380H980M1190 180H1230M1190 215H1210V345H1230M1085 270V315M1085 440V475M1190 380H1210V540H1230" class="lg"/>
       <path d="M380 250V286H660V330M930 380H980" class="line"/>
       <rect x="35" y="150" width="180" height="80" class="box external"/><text x="125" y="181" class="title">用户</text><text x="125" y="207" class="sub">添加 · 查询 · 配置</text>
+      <rect x="35" y="270" width="180" height="80" class="box external"/><text x="125" y="301" class="title">Agent（Hermes）</text><text x="125" y="327" class="sub">找资源 · 归档去重 · 确认后提交</text>
+      <path d="M215 310H560V250" class="lc"/><text x="380" y="300" class="label">Bearer Token · 归档查询</text>
       <rect x="35" y="390" width="180" height="80" class="box external"/><text x="125" y="421" class="title">资源网页</text><text x="125" y="447" class="sub">用户触发复制磁力链接</text>
       <rect x="270" y="135" width="180" height="110" class="box front"/><text x="360" y="170" class="title">Web 管理台</text><text x="360" y="196" class="sub">Dashboard · Tasks</text><text x="360" y="220" class="sub">Records · Settings</text>
       <rect x="270" y="375" width="180" height="110" class="box front"/><text x="360" y="410" class="title">Chrome 扩展</text><text x="360" y="436" class="sub">捕获 → Popup 确认</text><text x="360" y="460" class="sub">Bearer 访问令牌</text>
@@ -140,7 +142,7 @@
   </section>
 
   <section id="runtime">
-    <h2>4. 构建、配置与服务启动</h2>
+    <h2>5. 构建、配置与服务启动</h2>
     <p class="note">生产镜像在 Node 20 阶段构建 Web，在 Python 3.12 阶段安装服务端锁定依赖。Compose 挂载配置、数据库和日志；应用启动后校验 115 cookies（失败会记录错误，但当前代码不会因此中止初始化）。</p>
     <div class="canvas"><svg viewBox="0 0 1500 540" role="img" aria-labelledby="r-title r-desc">
       <title id="r-title">MediaBridge 构建、配置与启动</title><desc id="r-desc">展示前端构建、多阶段 Docker 镜像、Compose、FastAPI 初始化、数据库与配置挂载。</desc>
@@ -167,8 +169,19 @@
       <rect x="1080" y="450" width="320" height="70" class="box neutral"/><text x="1240" y="479" class="title">logs/</text><text x="1240" y="502" class="sub">容器日志输出与挂载目录</text>
       <text x="750" y="535" class="small">关闭时停止 TaskMonitor 并清理过期 PathCache；Supervisor 管理 Nginx 与 Uvicorn，Nginx 将 /api 转发到 127.0.0.1:8000。</text>
     </svg></div>
+    </section>
+
+    <section id="agent">
+    <h2>4. Agent 找资源接入流程</h2>
+    <p class="note">外部 agent（如 Hermes）按 apps/agent/AGENTS.md 接入：先查归档去重，未收录才搜索磁链，候选必须经用户确认后提交——与扩展同一哲学，永不自动提交。</p>
+    <div class="cards">
+      <article class="card"><h3>① 归档查询去重</h3><p>GET /api/agent/archive/query?q=番号。archived=已有（回报路径）；in_flight=在途不重复提交；failed=报告失败历史；空=未收录。</p></article>
+      <article class="card"><h3>② 搜索磁链</h3><p>javdb 拿元数据 + torrentkitty 拿磁链（实测可用，详见 apps/agent/docs/search-playbook.md）；用 curl 而非 web_extract。</p></article>
+      <article class="card"><h3>③ 候选确认</h3><p>列出标题/体积/日期等候选，用户明确挑选后才进入下一步——agent 永不自动提交。域路由：番号域走 MediaBridge，TMDB 域走 MoviePilot。</p></article>
+      <article class="card"><h3>④ 提交与追踪</h3><p>POST /api/tasks（Bearer mb_ 令牌）→ 轮询 GET /api/tasks → 完成后经归档查询/整理记录回报归档路径。</p></article>
+    </div>
   </section>
-  <footer>MediaBridge · 项目全流程图 · 根据代码与部署文件绘制 · b1839c4</footer>
+  <footer>MediaBridge · 项目全流程图 · 根据代码与部署文件绘制 · 055a1fe</footer>
 </main>
 </body>
 </html>

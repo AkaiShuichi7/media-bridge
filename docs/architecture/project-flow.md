@@ -11,6 +11,7 @@ flowchart LR
     User[用户]
     Web[Web 管理台]
     Extension[Chrome 扩展]
+    Agent[外部 Agent：Hermes 等]
     Nginx[Nginx：静态 Web 与 API 反向代理]
     API[FastAPI：认证、CSRF 与 API 路由]
     TaskService[OfflineTaskService]
@@ -25,6 +26,7 @@ flowchart LR
     User --> Web
     Web -->|HttpOnly 会话 Cookie；写操作含 CSRF| Nginx
     Extension -->|用户确认后以 Bearer Token 提交| Nginx
+    Agent -->|归档查询去重；用户确认后以 Bearer Token 提交| Nginx
     Nginx --> API
     API --> TaskService
     API --> DB
@@ -132,7 +134,36 @@ flowchart LR
 
 > 捕获不等于提交：扩展只暂存链接，必须由用户在 Popup 明确确认后才创建任务。
 
-## 4. 构建、配置与服务启动
+## 4. Agent 找资源接入流程
+
+```mermaid
+flowchart TD
+    Ask[用户给出番号或关键词]
+    Query[归档查询 GET /api/agent/archive/query]
+    Verdict{归档查询结果？}
+    Archived[archived 命中：已有，回报归档路径]
+    InFlight[in_flight：在途，不重复提交]
+    Failed[failed：报告失败历史，用户决定是否重试]
+    Search[搜索磁链：javdb 元数据 + torrentkitty 磁链]
+    Candidates[列出候选：标题 / 体积 / 日期]
+    Confirm{用户确认？}
+    Submit[POST /api/tasks 提交]
+    Track[轮询 GET /api/tasks 追踪]
+    Report[归档查询 / 整理记录回报归档路径]
+
+    Ask --> Query --> Verdict
+    Verdict -->|archived| Archived
+    Verdict -->|in_flight| InFlight
+    Verdict -->|failed| Failed
+    Verdict -->|未收录| Search --> Candidates --> Confirm
+    Confirm -->|否| Candidates
+    Confirm -->|是| Submit --> Track --> Report
+```
+
+> Agent 铁律：永不自动提交（候选必须经用户确认）、提交前必查归档、域路由（番号域走 MediaBridge，TMDB 域走 MoviePilot）。
+> 接入细节见 `apps/agent/AGENTS.md`；源可用性与搜索实操见 `apps/agent/docs/search-playbook.md`。
+
+## 5. 构建、配置与服务启动
 
 ```mermaid
 flowchart TD
