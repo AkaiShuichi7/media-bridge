@@ -77,13 +77,17 @@ class TestIsTempDirectory:
 
 @pytest_asyncio.fixture
 async def cache_env():
-    """每个测试用独立的内存 SQLite；返回 (PathCache, session_maker) 供篡改时间模拟过期"""
+    """每个测试用独立的内存 SQLite；返回 (PathCache, session_maker) 供篡改时间模拟过期；
+    teardown 时 dispose 引擎，避免 aiosqlite 连接线程残留（同 test_models）"""
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     maker = async_sessionmaker(engine, expire_on_commit=False)
     # get_session 风格的工厂：返回异步上下文管理器
-    return PathCache(lambda: maker()), maker
+    try:
+        yield PathCache(lambda: maker()), maker
+    finally:
+        await engine.dispose()
 
 
 @pytest.fixture

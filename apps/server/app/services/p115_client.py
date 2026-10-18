@@ -20,10 +20,12 @@ BACKOFF_BASE = 2
 
 
 class P115Client:
-    """p115 客户端单例封装（HTTP 适配器 + 路径遍历编排）"""
+    """p115 客户端封装（HTTP 适配器 + 路径遍历编排）
 
-    _instance: Optional["P115Client"] = None
-    _lock: asyncio.Lock = asyncio.Lock()
+    生命周期由 AppContainer 独占创建与持有（构造即就绪，无类级单例），
+    测试经构造函数注入内存实现，不再绕全局态。
+    """
+
     _client: Optional[P115SyncClient] = None
     _cookies: Optional[str] = None
 
@@ -44,16 +46,6 @@ class P115Client:
             from app.core.database import get_session
 
             self._path_cache = PathCache(get_session)
-
-    @classmethod
-    async def get_client(cls, cookies: str) -> "P115Client":
-        """获取客户端实例（单例模式）"""
-        if cls._instance is None:
-            async with cls._lock:
-                if cls._instance is None:
-                    cls._instance = cls(cookies)
-                    logger.info("p115 客户端实例已创建")
-        return cls._instance
 
     async def _retry_with_backoff(
         self, func, *args, max_retries: int = MAX_RETRY_COUNT, **kwargs

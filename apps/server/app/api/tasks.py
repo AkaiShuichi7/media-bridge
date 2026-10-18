@@ -21,59 +21,36 @@ from app.schemas.api import (
     DeleteTaskResponse,
     success_response,
 )
-from app.core.dependencies import get_cloud_service, get_config
-from app.services.offline_task_service import AddTaskError, OfflineTaskService
+from app.core.dependencies import get_cloud_service, get_offline_task_service
+from app.services.offline_task_service import AddTaskError
+from app.schemas.cloud_types import (
+    CloudTaskStatus,
+    cloud_task_status_from_code,
+    cloud_task_status_to_code,
+)
 from app.utils.helpers import parse_info_hash_from_magnet
 
 if TYPE_CHECKING:
     from app.services.cloud.base import CloudService
-    from app.core.config import Config
+    from app.services.offline_task_service import OfflineTaskService
 
 router = APIRouter()
-
-
-async def _load_error_messages(info_hashes: list[str]) -> dict[str, str]:
-    """从本地数据库加载任务的整理失败原因，按 info_hash 建立映射。
-
-    数据库不可用时降级为空映射，保证任务列表接口仍可用。
-
-    Args:
-        info_hashes: 当前页任务的 info_hash 列表
-
-    Returns:
-        {info_hash: 失败原因} 字典，仅包含有原因的记录
-    """
-    if not info_hashes:
-        return {}
-    try:
-        async with get_session() as session:
-            result = await session.execute(
-                select(OfflineTask.info_hash, OfflineTask.error_message).where(
-                    OfflineTask.info_hash.in_(info_hashes)
-                )
-            )
-            return {row[0]: row[1] for row in result.fetchall() if row[1]}
-    except Exception as e:
-        logger.warning(f"查询任务本地失败原因失败，列表将不含原因: {e}")
-        return {}
 
 
 @router.post("/tasks")
 async def add_task(
     request: AddTaskRequest,
-    cloud_service: "CloudService" = Depends(get_cloud_service),
-    config: "Config" = Depends(get_config),
+    offline_task_service: "OfflineTaskService" = Depends(get_offline_task_service),
 ):
     """
     添加离线下载任务。
 
     业务流程（库校验 → 目录解析 → 云端建任务 → 本地持久化 → 失败补偿回滚）
-    全部下沉到 OfflineTaskService；本函数只做协议转换。
+    全部下沉到 OfflineTaskService（AppContainer 统一持有）；本函数只做协议转换。
 
     Args:
         request: 包含 magnet、library_name、可选 name 的请求体
-        cloud_service: 云盘服务（DI 注入）
-        config: 全局配置（DI 注入）
+        offline_task_service: 离线任务领域服务（DI 注入）
 
     Returns:
         成功响应，包含最终任务 ID（info_hash）
@@ -85,9 +62,8 @@ async def add_task(
     # 先从 magnet 解析 info_hash 作为备用（云端可能不返回）
     parsed_info_hash = parse_info_hash_from_magnet(request.magnet)
 
-    service = OfflineTaskService(cloud_service, config)
     try:
-        task_id = await service.add_task(
+        task_id = await offline_task_service.add_task(
             magnet=request.magnet,
             library_name=request.library_name,
             name=request.name,
@@ -107,6 +83,7 @@ async def add_task(
 @router.get("/tasks")
 async def get_tasks(
     cloud_service: "CloudService" = Depends(get_cloud_service),
+    offline_task_service: "OfflineTaskService" = Depends(get_offline_task_service),
     page: int = Query(1, ge=1),
     page_size: int = Query(100, ge=1, le=100),
     status: int | None = Query(None),
@@ -122,16 +99,30 @@ async def get_tasks(
     """
     tasks = await cloud_service.get_offline_tasks()
     if status is not None:
-        tasks = [task for task in tasks if task.status == status]
+        # 入参仍是数值口径（2/1/0/负数），先映射为中立枚举再比对
+        wanted = cloud_task_status_from_code(status)
+        tasks = [task for task in tasks if task.status is wanted]
     total = len(tasks)
     tasks = tasks[(page - 1) * page_size : page * page_size]
-    # 合并本地数据库记录的整理失败原因，供 UI 展示
-    error_messages = await _load_error_messages([task.info_hash for task in tasks])
+    # 合并本地数据库记录的整理失败原因，供 UI 展示（查询 SQL 在领域服务内）
+    error_messages = await offline_task_service.load_error_messages(
+        [task.info_hash for task in tasks]
+    )
+    # 本地整理失败的任务，对外口径映射为失败（覆盖云端已完成的状态），
+    # 保证前端「失败」筛选与红色标记能覆盖整理失败
+    local_status = await offline_task_service.load_local_status(
+        [task.info_hash for task in tasks]
+    )
+    failed_code = cloud_task_status_to_code(CloudTaskStatus.FAILED)
     task_items = [
         TaskItem(
             task_id=task.info_hash,
             name=task.name,
-            status=task.status,
+            status=(
+                failed_code
+                if local_status.get(task.info_hash) == "organize_failed"
+                else cloud_task_status_to_code(task.status)
+            ),
             progress=task.progress,
             add_time=task.add_time,
             error_message=error_messages.get(task.info_hash),
@@ -171,7 +162,7 @@ async def get_task_detail(
         data=TaskDetailResponse(
             task_id=task.info_hash,
             name=task.name,
-            status=task.status,
+            status=cloud_task_status_to_code(task.status),
             progress=task.progress,
             add_time=task.add_time,
             file_id=task.file_id or None,

@@ -29,7 +29,7 @@ class TaskItem(BaseModel):
     name: str = Field(..., description="任务名称")
     status: int = Field(
         ...,
-        description="任务状态（2=完成，负数=失败，如 -1；其余=进行中。115 原始状态透传）",
+        description="任务状态（对外稳定口径：2=完成，负数=失败（统一映射为 -1），1=等待中，0=下载中；由中立状态枚举映射）",
     )
     progress: int = Field(..., description="下载进度（百分比）")
     add_time: datetime = Field(..., description="添加时间")
@@ -48,7 +48,7 @@ class TaskDetailResponse(BaseModel):
     """单个离线任务的详细信息响应体。"""
     task_id: str = Field(..., description="任务 ID")
     name: str = Field(..., description="任务名称")
-    status: int = Field(..., description="任务状态")
+    status: int = Field(..., description="任务状态（对外稳定口径同任务列表：2=完成，负数=失败，1=等待中，0=下载中）")
     progress: int = Field(..., description="下载进度")
     add_time: datetime = Field(..., description="添加时间")
     file_id: Optional[str] = Field(None, description="文件 ID")

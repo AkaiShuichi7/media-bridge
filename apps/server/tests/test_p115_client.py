@@ -12,23 +12,15 @@ from app.services.p115_client import P115Client
 
 
 @pytest.mark.asyncio
-async def test_client_singleton():
-    """测试客户端单例模式"""
-    # 确保多次调用 get_client() 返回同一个实例
+async def test_client_direct_construction():
+    """测试客户端直接构造（生命周期由 AppContainer 独占持有，无类级单例）"""
     with patch("app.services.p115_client.P115SyncClient") as mock_client_class:
-        # 模拟 p115client 实例
-        mock_instance = MagicMock()
-        mock_client_class.return_value = mock_instance
+        # 两次构造互不影响，各自持有独立实例
+        client1 = P115Client("test_cookies_1")
+        client2 = P115Client("test_cookies_1")
 
-        client1 = await P115Client.get_client("test_cookies_1")
-        client2 = await P115Client.get_client("test_cookies_1")
-
-        # 验证是同一个实例
-        assert client1 is client2
-
-        # 验证 p115client 只被实例化一次
-        assert mock_client_class.call_count == 1
-        mock_client_class.assert_called_once_with("test_cookies_1")
+        assert client1 is not client2
+        assert mock_client_class.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -42,7 +34,7 @@ async def test_add_offline_task():
         )
         mock_client_class.return_value = mock_instance
 
-        client = await P115Client.get_client("test_cookies")
+        client = P115Client("test_cookies")
 
         # 测试添加离线任务
         result = await client.add_offline_task("magnet:?xt=urn:btih:test", "dir_id_123")
@@ -74,7 +66,7 @@ async def test_retry_on_failure():
         )
         mock_client_class.return_value = mock_instance
 
-        client = await P115Client.get_client("test_cookies")
+        client = P115Client("test_cookies")
 
         # 测试获取任务列表（应自动重试）
         result = await client.get_offline_tasks()
@@ -99,7 +91,7 @@ async def test_cookies_invalid():
         )
         mock_client_class.return_value = mock_instance
 
-        client = await P115Client.get_client("test_cookies")
+        client = P115Client("test_cookies")
 
         # 测试验证 cookies
         result = await client.verify_cookies()

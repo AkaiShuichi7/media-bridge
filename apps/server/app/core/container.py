@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from app.services.cloud.base import CloudService
     from app.services.cloud.p115 import P115CloudService
     from app.services.file_organizer import FileOrganizer
+    from app.services.offline_task_service import OfflineTaskService
     from app.tasks.monitor import TaskMonitor
 
 
@@ -31,6 +32,7 @@ class AppContainer:
         self.p115_client: P115Client | None = None
         self.cloud_service: P115CloudService | None = None
         self.file_organizer: FileOrganizer | None = None
+        self.offline_task_service: OfflineTaskService | None = None
         self.task_monitor: TaskMonitor | None = None
         self.auth_service = None
 
@@ -45,6 +47,7 @@ class AppContainer:
         from app.services.p115_client import P115Client
         from app.services.cloud.p115 import P115CloudService
         from app.services.file_organizer import FileOrganizer
+        from app.services.offline_task_service import OfflineTaskService
         from app.tasks.monitor import TaskMonitor
 
         self.config = config
@@ -56,8 +59,8 @@ class AppContainer:
         await self.auth_service.initialize()
         logger.info("数据库初始化完成")
 
-        # 创建 115 客户端（单例）
-        self.p115_client = await P115Client.get_client(config.cloud.p115.cookies)
+        # 创建 115 客户端（容器独占持有，无类级单例）
+        self.p115_client = P115Client(config.cloud.p115.cookies)
 
         # 验证 cookies
         if not await self.p115_client.verify_cookies():
@@ -71,11 +74,18 @@ class AppContainer:
         # 路径缓存随应用关闭时清理过期条目（防缓存表无限膨胀）
         self._path_cache = self.p115_client._path_cache
 
-        # 文件整理器和监控器依赖 CloudService 接口
+        # 文件整理器依赖 CloudService 接口
         self.file_organizer = FileOrganizer(self.cloud_service)
+
+        # 领域服务统一在容器内构造，路由层与监控器共享同一实例
+        self.offline_task_service = OfflineTaskService(
+            self.cloud_service, config, self.file_organizer
+        )
+
+        # 监控器只负责轮询，状态迁移与整理编排交由领域服务
         self.task_monitor = TaskMonitor(
             self.cloud_service,
-            self.file_organizer,
+            self.offline_task_service,
             config,
         )
 

@@ -4,6 +4,7 @@
 """
 
 import pytest
+import pytest_asyncio
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -14,11 +15,15 @@ from app.models.organize_record import OrganizeRecord
 from app.models.offline_task import OfflineTask
 
 
-@pytest.fixture
-def async_engine():
-    """创建测试数据库引擎（使用内存 SQLite）"""
+@pytest_asyncio.fixture
+async def async_engine():
+    """创建测试数据库引擎（使用内存 SQLite）；teardown 时 dispose，
+    避免 aiosqlite 连接线程残留到后续测试的事件循环（表现为
+    "Event loop is closed" 线程告警）
+    """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
-    return engine
+    yield engine
+    await engine.dispose()
 
 
 @pytest.fixture

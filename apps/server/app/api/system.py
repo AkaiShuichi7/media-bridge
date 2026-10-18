@@ -9,9 +9,9 @@ from fastapi import APIRouter, Depends
 
 from app.core.dependencies import get_cloud_service, get_task_monitor
 from app.schemas.api import ApiResponse, StatusResponse, success_response
+from app.services.cloud.base import CloudService, CloudTaskStatus
 
 if TYPE_CHECKING:
-    from app.services.cloud.base import CloudService
     from app.tasks.monitor import TaskMonitor
 
 
@@ -37,7 +37,10 @@ async def get_status(
     if cloud_service is not None:
         try:
             tasks = await cloud_service.get_offline_tasks()
-            active_tasks = sum(1 for task in tasks if task.status == 0)
+            # 保持旧口径：仅「下载中」（原数值 0）计入活跃数
+            active_tasks = sum(
+                1 for task in tasks if task.status is CloudTaskStatus.DOWNLOADING
+            )
         except Exception:
             # Status reporting must remain available when the upstream provider is down.
             pass

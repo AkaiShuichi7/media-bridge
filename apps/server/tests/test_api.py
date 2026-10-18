@@ -6,7 +6,7 @@
 from datetime import datetime
 
 import pytest
-from app.schemas.cloud_types import CloudTask
+from app.schemas.cloud_types import CloudTask, CloudTaskStatus
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest_asyncio
@@ -22,6 +22,8 @@ from app.core.config import (
     P115Config,
     XXConfig,
 )
+from app.services.file_organizer import FileOrganizer
+from app.services.offline_task_service import OfflineTaskService
 
 
 @pytest.fixture
@@ -71,7 +73,7 @@ def mock_p115_client():
                 CloudTask(
                     info_hash="task1_hash",
                     name="测试任务1",
-                    status=2,
+                    status=CloudTaskStatus.COMPLETED,
                     progress=100,
                     file_id="12345",
                     path="/下载",
@@ -80,7 +82,7 @@ def mock_p115_client():
                 CloudTask(
                     info_hash="task2_hash",
                     name="测试任务2",
-                    status=0,
+                    status=CloudTaskStatus.DOWNLOADING,
                     progress=50,
                     file_id="",
                     path="",
@@ -92,7 +94,7 @@ def mock_p115_client():
         return_value=CloudTask(
             info_hash="task1_hash",
             name="测试任务1",
-            status=2,
+            status=CloudTaskStatus.COMPLETED,
             progress=100,
             file_id="12345",
             path="/下载",
@@ -129,7 +131,12 @@ def test_app(mock_config, mock_p115_client, mock_task_monitor):
     container.p115_client = mock_p115_client
     container.cloud_service = mock_p115_client
     container.task_monitor = mock_task_monitor
-    container.file_organizer = MagicMock()
+    # 整理服务用真实实例包住 mock 云盘：查询接口走 FileOrganizer.list_organize_records
+    container.file_organizer = FileOrganizer(mock_p115_client)
+    # 领域服务与生产环境一致：真实服务实例包住 mock 云盘（AppContainer 统一持有）
+    container.offline_task_service = OfflineTaskService(
+        mock_p115_client, mock_config, MagicMock()
+    )
     app.state.container = container
 
     app.include_router(tasks.router, prefix="/api", tags=["tasks"])
@@ -196,13 +203,13 @@ class TestGetTasks:
 
     @pytest.mark.asyncio
     async def test_negative_status_passed_through(self, client, mock_p115_client):
-        """回归测试：云端负数失败状态（如 -1）必须原样透传，不得改写为 1"""
+        """回归测试：对外数值口径不回归——失败态输出负数（-1），等待中输出 1"""
         mock_p115_client.get_offline_tasks = AsyncMock(
             return_value=[
                 CloudTask(
                     info_hash="neg_hash",
                     name="云端失败任务",
-                    status=-1,
+                    status=CloudTaskStatus.FAILED,
                     progress=30,
                     file_id="",
                     path="",
@@ -211,7 +218,7 @@ class TestGetTasks:
                 CloudTask(
                     info_hash="st1_hash",
                     name="进行中任务",
-                    status=1,
+                    status=CloudTaskStatus.PENDING,
                     progress=50,
                     file_id="",
                     path="",
@@ -225,9 +232,9 @@ class TestGetTasks:
         assert response.status_code == 200
         tasks = response.json()["data"]["tasks"]
         status_by_hash = {t["task_id"]: t["status"] for t in tasks}
-        # 负数失败状态保持原始语义透传
+        # 失败状态按数值口径输出负数
         assert status_by_hash["neg_hash"] == -1
-        # 1 不是失败状态，同样不得被改写
+        # 等待中（原数值 1）不得被改写为其他口径
         assert status_by_hash["st1_hash"] == 1
 
     @pytest.mark.asyncio
@@ -243,7 +250,7 @@ class TestGetTasks:
         mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
         mock_ctx.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("app.api.tasks.get_session", return_value=mock_ctx):
+        with patch("app.services.offline_task_service.get_session", return_value=mock_ctx):
             response = await client.get("/api/tasks")
 
         assert response.status_code == 200
@@ -252,6 +259,32 @@ class TestGetTasks:
         assert message_by_hash["task1_hash"] == "整理失败: 无法创建目标目录"
         # 无本地记录的任务 error_message 为空
         assert message_by_hash["task2_hash"] is None
+
+    @pytest.mark.asyncio
+    async def test_organize_failed_mapped_to_failed_status(self, client, mock_p115_client):
+        """回归测试：云端已完成但本地整理失败的任务，对外口径映射为失败（-1）"""
+        mock_result = MagicMock()
+        mock_result.fetchall = MagicMock(
+            return_value=[("task1_hash", "organize_failed"), ("task2_hash", "completed")]
+        )
+        mock_session = MagicMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with patch(
+            "app.services.offline_task_service.get_session", return_value=mock_ctx
+        ):
+            response = await client.get("/api/tasks")
+
+        assert response.status_code == 200
+        tasks = response.json()["data"]["tasks"]
+        status_by_hash = {t["task_id"]: t["status"] for t in tasks}
+        # 本地 organize_failed → 失败口径
+        assert status_by_hash["task1_hash"] == -1
+        # 非整理失败的任务维持云端口径（task2 云端为下载中）
+        assert status_by_hash["task2_hash"] == 0
 
     @pytest.mark.asyncio
     async def test_error_message_degrades_gracefully_when_db_unavailable(
@@ -300,7 +333,7 @@ class TestDeleteTask:
 class TestGetOrganizeRecords:
     @pytest.mark.asyncio
     async def test_get_organize_records(self, client):
-        with patch("app.api.organize.get_session") as mock_get_session:
+        with patch("app.services.file_organizer.get_session") as mock_get_session:
             mock_session = MagicMock()
             mock_count_result = MagicMock()
             mock_count_result.scalar.return_value = 0

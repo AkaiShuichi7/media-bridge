@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.schemas.cloud_types import CloudFile
-from app.services.file_organizer import FileOrganizer
+from app.services.file_organizer import FileOrganizer, OfflineTaskRef
 
 
 def _make_configs(library_type="system", min_transfer_size=100):
@@ -29,15 +29,13 @@ def _make_configs(library_type="system", min_transfer_size=100):
     return library_config, media_config
 
 
-def _make_task_info():
-    """构造最小的任务信息字典"""
-    return {
-        "task_id": "org_test_hash",
-        "info_hash": "org_test_hash",
-        "name": "整理测试任务",
-        "path_id": "88888",
-        "download_path_id": "",
-    }
+def _make_task_ref():
+    """构造最小的任务引用对象"""
+    return OfflineTaskRef(
+        info_hash="org_test_hash",
+        name="整理测试任务",
+        path_id="88888",
+    )
 
 
 class TestOrganizeTaskZeroResultReason:
@@ -52,14 +50,14 @@ class TestOrganizeTaskZeroResultReason:
 
         library_config, media_config = _make_configs()
         result = await organizer.organize_task(
-            _make_task_info(), library_config, media_config, None
+            _make_task_ref(), library_config, media_config, None
         )
 
-        assert result["success_count"] == 0
-        assert result["failed_count"] == 0
-        assert result["skipped_count"] == 0
-        assert result["message"]
-        assert "没有文件" in result["message"]
+        assert result.success_count == 0
+        assert result.failed_count == 0
+        assert result.skipped_count == 0
+        assert result.message
+        assert "没有文件" in result.message
 
     @pytest.mark.asyncio
     async def test_no_video_files_returns_zero_with_reason(self):
@@ -77,13 +75,13 @@ class TestOrganizeTaskZeroResultReason:
 
         library_config, media_config = _make_configs()
         result = await organizer.organize_task(
-            _make_task_info(), library_config, media_config, None
+            _make_task_ref(), library_config, media_config, None
         )
 
-        assert result["success_count"] == 0
-        assert result["failed_count"] == 0
-        assert result["message"]
-        assert "无符合条件的视频文件" in result["message"]
+        assert result.success_count == 0
+        assert result.failed_count == 0
+        assert result.message
+        assert "无符合条件的视频文件" in result.message
 
     @pytest.mark.asyncio
     async def test_unknown_library_type_returns_zero_with_reason(self):
@@ -101,10 +99,10 @@ class TestOrganizeTaskZeroResultReason:
 
         library_config, media_config = _make_configs(library_type="unknown-type")
         result = await organizer.organize_task(
-            _make_task_info(), library_config, media_config, None
+            _make_task_ref(), library_config, media_config, None
         )
 
-        assert result["success_count"] == 0
-        assert result["failed_count"] == 0
-        assert result["message"]
-        assert "未知的媒体库类型" in result["message"]
+        assert result.success_count == 0
+        assert result.failed_count == 0
+        assert result.message
+        assert "未知的媒体库类型" in result.message

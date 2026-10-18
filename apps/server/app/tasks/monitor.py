@@ -1,6 +1,7 @@
 """
-@description 后台监控任务核心逻辑
-@responsibility 监控115离线任务状态，任务完成时触发文件整理，失败时记录到数据库
+@description 后台离线任务轮询器
+@responsibility 只负责轮询循环：取任务列表 → 比对中立状态 → 调用 OfflineTaskService；
+                状态迁移与整理编排全部收敛在领域服务内，本模块不再直接触达数据库
 """
 
 import asyncio
@@ -9,11 +10,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
-from sqlalchemy import select
 
-from app.core.database import get_session
-from app.models.offline_task import OfflineTask
-from app.utils.helpers import find_library_by_name
+from app.services.cloud.base import CloudTaskStatus
 
 
 # 轮询间隔最小值（秒）
@@ -22,23 +20,29 @@ POLL_INTERVAL_MIN = 60
 POLL_INTERVAL_MAX = 80
 
 if TYPE_CHECKING:
+    from app.core.config import Config
     from app.services.cloud.base import CloudService
+    from app.services.offline_task_service import OfflineTaskService
 
 class TaskMonitor:
-    """后台监控任务管理器"""
+    """后台监控任务管理器
 
-    def __init__(self, p115_client: "CloudService", file_organizer, config):
-        self._client = p115_client
-        self._organizer = file_organizer
+    纯轮询器：不持有任何业务状态。跨轮的重复处理防护由 DB 生命周期状态推导
+    （任务迁移到终态后自动退出 added/downloading 轮询集合），无需内存去重集合。
+    """
+
+    def __init__(
+        self,
+        cloud_service: "CloudService",
+        offline_task_service: "OfflineTaskService",
+        config: "Config",
+    ):
+        self._cloud = cloud_service
+        self._task_service = offline_task_service
         self._config = config
         self._task: Optional[asyncio.Task] = None
         self._stop_event = asyncio.Event()
-        self._processed_hashes: set[str] = set()
         self.last_check_time: Optional[datetime] = None
-
-    def _find_library_by_name(self, name: str):
-        """通过名称在配置中查找媒体库。"""
-        return find_library_by_name(self._config.media.libraries, name)
 
     async def start_monitor(self) -> None:
         """启动监控任务"""
@@ -69,198 +73,36 @@ class TaskMonitor:
         logger.info("后台监控任务已停止")
 
     async def check_tasks(self) -> None:
-        """检查所有离线任务状态 - 只处理系统添加的任务"""
+        """单轮检查：拉取轮询集合与云端任务列表，比对中立状态后交由领域服务处理"""
         try:
-            # 1. 查询数据库获取系统任务的 info_hash 列表
-            async with get_session() as session:
-                result = await session.execute(
-                    select(OfflineTask.info_hash).where(
-                        OfflineTask.status.in_(["added", "downloading"])
-                    )
-                )
-                system_hashes = set(row[0] for row in result.fetchall())
-
-            if not system_hashes:
+            # 1. 查询数据库获取系统任务的 info_hash 轮询集合（added/downloading）
+            active_hashes = await self._task_service.list_active_hashes()
+            if not active_hashes:
                 return
 
             # 2. 获取离线任务列表（CloudService 已翻译为标准 CloudTask 列表）
-            tasks = await self._client.get_offline_tasks()
+            tasks = await self._cloud.get_offline_tasks()
 
-            # 3. 只处理系统添加的任务
+            # 3. 只处理系统添加的任务，按中立状态分派给领域服务
+            # 单轮内的去重集合；跨轮去重由 DB 生命周期状态推导：
+            # 任务一旦迁移到终态便退出 added/downloading 轮询集合，不会重复整理
+            seen: set[str] = set()
             for task in tasks:
-                if task.info_hash and task.info_hash in system_hashes:
-                    await self._process_task(task)
+                if not task.info_hash or task.info_hash not in active_hashes:
+                    continue
+                if task.info_hash in seen:
+                    continue
+                seen.add(task.info_hash)
+
+                if task.status is CloudTaskStatus.COMPLETED:
+                    await self._task_service.handle_completed_task(task)
+                elif task.status is CloudTaskStatus.FAILED:
+                    await self._task_service.mark_download_failed(task)
 
         except Exception as e:
             logger.error(f"检查任务时发生错误: {e}")
         finally:
             self.last_check_time = datetime.now()
-
-    async def _process_task(self, task: dict) -> None:
-        """处理单个离线任务"""
-        info_hash = task.info_hash
-        status = task.status
-        name = task.name
-
-        if info_hash in self._processed_hashes:
-            return
-
-        if status == 2:
-            logger.info(f"任务 [{name}] 已完成，开始整理文件")
-            if await self._handle_completed_task(task):
-                self._processed_hashes.add(info_hash)
-
-        elif status < 0:  # 负数表示失败（如 -1）
-            logger.warning(f"任务 [{name}] 下载失败 (status={status})")
-            await self._handle_failed_task(task)
-            self._processed_hashes.add(info_hash)
-
-    async def _handle_completed_task(self, task: dict) -> bool:
-        """处理已完成的任务 - 触发文件整理
-
-        结局分为三类，不得混淆：
-        - 成功：success_count > 0 且 failed_count == 0 → 标记 completed 并清理云端任务
-        - 失败：failed_count > 0 → 标记 organize_failed，保留云端任务
-        - 全跳过：success_count == 0 且 failed_count == 0（无文件/无符合条件文件/番号均无法识别）
-          → 标记 organize_skipped 并记录可读原因，保留云端任务
-
-        重试与可观察性语义：organize_failed / organize_skipped 均不会进入下一轮
-        added/downloading 轮询集合（确定性结局自动重试无意义），云端任务与本地
-        error_message 都保留，供 UI 展示与人工排查。
-        """
-        info_hash = task.info_hash
-
-        # 通过数据库查询 library_name
-        library_config = None
-        if info_hash:
-            try:
-                async with get_session() as session:
-                    result = await session.execute(
-                        select(OfflineTask.library_name).where(
-                            OfflineTask.info_hash == info_hash
-                        )
-                    )
-                    library_name = result.scalar_one_or_none()
-                    if library_name:
-                        library_config = find_library_by_name(self._config.media.libraries, library_name)
-                        logger.debug(f"通过数据库找到 library: {library_name}")
-            except Exception as e:
-                logger.error(f"查询 library_name 失败: {e}")
-
-        if library_config is None:
-            # 路径回退: 当 DB 查询失败或无结果时，尝试通过任务路径匹配媒体库
-            task_path = task.path
-            for lib in self._config.media.libraries:
-                if task_path.startswith(lib.download_path):
-                    library_config = lib
-                    logger.debug(f"通过路径回退找到 library: {lib.name}")
-                    break
-        if library_config is None:
-            logger.error(
-                f"无法确定任务 [{task.name}] 的 library 配置，跳过整理"
-            )
-            return False
-
-        task_path = task.path
-        download_path_id = ""
-        logger.debug(f"任务 [{task.name}] 路径信息: {task_path or '(空)'}")
-        if task_path:
-            parent_path = "/".join(task_path.rstrip("/").split("/")[:-1])
-            if parent_path:
-                download_path_id = await self._client.get_path_id(parent_path)
-                logger.debug(
-                    f"任务 [{task.name}] 下载路径 ID: {parent_path} -> {download_path_id}"
-                )
-
-        task_info = {
-            "task_id": task.info_hash,
-            "info_hash": task.info_hash,
-            "name": task.name,
-            "path_id": task.file_id,
-            "download_path_id": download_path_id or "",
-        }
-
-        # xx 配置可选：未配置时传 None，organizer 内部按空关键词处理
-        xx_config = self._config.media.xx if self._config.media.xx else None
-
-        try:
-            # 配置对象直接透传，不再手工拍平成裸 dict
-            result = await self._organizer.organize_task(
-                task_info, library_config, self._config.media, xx_config
-            )
-            logger.info(
-                f"任务整理完成: 成功 {result['success_count']}, "
-                f"失败 {result['failed_count']}, 跳过 {result['skipped_count']}"
-            )
-
-            if result["failed_count"]:
-                await self._update_task_status(
-                    info_hash, "organize_failed", "; ".join(result.get("errors", []))
-                )
-                return False
-
-            if result["success_count"] == 0:
-                # 0 成功 0 失败：全部跳过或无可整理文件，不得虚报成功，也不得清理云端任务
-                reason = result.get("message") or (
-                    f"所有 {result['skipped_count']} 个文件均被跳过"
-                    "（番号无法识别或目标文件已存在），没有任何文件被整理"
-                )
-                logger.warning(
-                    f"任务 [{task_info['name']}] 整理后无成功文件，"
-                    f"保留云端任务等待人工处理: {reason}"
-                )
-                await self._update_task_status(info_hash, "organize_skipped", reason)
-                return False
-
-            await self._update_task_status(info_hash, "completed")
-            try:
-                await self._client.delete_offline_task(info_hash)
-            except Exception as e:
-                logger.warning(f"任务 [{task_info['name']}] 清理失败: {e}")
-            return True
-
-        except Exception as e:
-            logger.error(f"整理任务时发生错误: {e}")
-            await self._update_task_status(info_hash, "organize_failed", str(e))
-            return False
-
-    async def _handle_failed_task(self, task: dict) -> None:
-        """处理失败的任务 - 保存记录到数据库"""
-        try:
-            async with get_session() as session:
-                result = await session.execute(
-                    select(OfflineTask).where(OfflineTask.info_hash == task.info_hash)
-                )
-                offline_task = result.scalar_one_or_none()
-                if offline_task is None:
-                    offline_task = OfflineTask(info_hash=task.info_hash)
-                    session.add(offline_task)
-                offline_task.name = task.name
-                offline_task.status = "failed"
-                offline_task.add_time = task.add_time
-                offline_task.error_message = "下载失败"
-                await session.commit()
-                logger.info(f"失败任务已记录到数据库: {task.name}")
-        except Exception as e:
-            logger.error(f"保存失败任务记录时出错: {e}")
-
-    async def _update_task_status(
-        self, info_hash: str | None, status: str, error_message: str | None = None
-    ) -> None:
-        if not info_hash:
-            return
-        async with get_session() as session:
-            result = await session.execute(
-                select(OfflineTask).where(OfflineTask.info_hash == info_hash)
-            )
-            offline_task = result.scalar_one_or_none()
-            if offline_task is None or not hasattr(offline_task, "status"):
-                return
-            offline_task.status = status
-            offline_task.error_message = error_message
-            if status == "completed":
-                offline_task.complete_time = datetime.now()
-            await session.commit()
 
     def _get_random_interval(self) -> float:
         """获取随机轮询间隔（秒），配置缺失时使用默认常量"""
@@ -286,15 +128,3 @@ class TaskMonitor:
             except asyncio.TimeoutError:
                 # 超时说明没有收到退出信号，继续下一轮循环
                 pass
-
-
-async def start_monitor(p115_client, file_organizer, config) -> TaskMonitor:
-    """创建并启动监控实例的便捷函数"""
-    monitor = TaskMonitor(p115_client, file_organizer, config)
-    await monitor.start_monitor()
-    return monitor
-
-
-async def stop_monitor(monitor: TaskMonitor) -> None:
-    """停止监控实例的便捷函数"""
-    await monitor.stop_monitor()

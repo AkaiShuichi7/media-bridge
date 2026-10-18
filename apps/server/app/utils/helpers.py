@@ -114,35 +114,3 @@ def build_library_item(library) -> dict:
         "min_transfer_size": getattr(library, "min_transfer_size", 0),
     }
 
-
-def build_organize_record(
-    task_info: dict,
-    library_config,
-    file_name: str,
-    target_path: str,
-    status: str,
-    error: str = "",
-) -> dict:
-    """
-    构建整理操作的记录字典，用于数据库写入和日志追踪。
-
-    Args:
-        task_info: 任务信息字典，包含 task_id、info_hash 等
-        library_config: 媒体库配置对象
-        file_name: 整理的文件名
-        target_path: 目标路径
-        status: 整理状态（success / failed / skipped）
-        error: 错误信息，默认为空字符串
-
-    Returns:
-        标准化的整理记录字典
-    """
-    return {
-        "task_id": task_info.get("task_id", ""),
-        "info_hash": task_info.get("info_hash", ""),
-        "library_name": library_config.name if library_config else "",
-        "file_name": file_name,
-        "target_path": target_path,
-        "status": status,
-        "error": error,
-    }

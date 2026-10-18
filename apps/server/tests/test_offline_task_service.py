@@ -41,8 +41,8 @@ def mock_cloud():
 
 @pytest.fixture
 def service(mock_cloud, mock_config):
-    """被测服务"""
-    return OfflineTaskService(mock_cloud, mock_config)
+    """被测服务（整理器用 mock，生命周期测试中按需覆写）"""
+    return OfflineTaskService(mock_cloud, mock_config, AsyncMock())
 
 
 def _mock_session(existing_task=None):
@@ -212,3 +212,120 @@ class TestUpsert:
             return_value=_mock_session(),
         ):
             await service._upsert_task_record("hash1", "magnet:?xt=urn:btih:aaa"[:50], "电影库")
+
+
+class TestListActiveHashes:
+    """轮询集合查询：added/downloading 才属于轮询集合"""
+
+    @pytest.mark.asyncio
+    async def test_returns_only_active_hashes(self, service):
+        """仅返回 DB 中 added/downloading 状态的 info_hash 集合"""
+        session = MagicMock()
+        result = MagicMock()
+        result.fetchall = MagicMock(return_value=[("hash1",), ("hash2",)])
+        session.execute = AsyncMock(return_value=result)
+        ctx = MagicMock()
+        ctx.__aenter__ = AsyncMock(return_value=session)
+        ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("app.services.offline_task_service.get_session", return_value=ctx):
+            hashes = await service.list_active_hashes()
+
+        assert hashes == {"hash1", "hash2"}
+        # 查询条件必须限定 added/downloading（跨轮去重的依据）
+        stmt = session.execute.await_args.args[0]
+        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert "added" in compiled and "downloading" in compiled
+
+
+class TestUpdateLifecycle:
+    """本地生命周期状态迁移（原 monitor._update_task_status）"""
+
+    @pytest.mark.asyncio
+    async def test_completed_sets_status_and_complete_time(self, service):
+        """迁移到 completed 时写入状态并补全 complete_time"""
+        record = MagicMock()
+        ctx = _mock_session(existing_task=record)
+        with patch("app.services.offline_task_service.get_session", return_value=ctx):
+            await service.update_lifecycle("hash1", "completed", None)
+
+        assert record.status == "completed"
+        assert record.error_message is None
+        assert record.complete_time is not None
+        ctx.__aenter__.return_value.commit.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_failed_status_keeps_error_message(self, service):
+        """迁移到 organize_failed 时保留可读错误信息"""
+        record = MagicMock()
+        ctx = _mock_session(existing_task=record)
+        with patch("app.services.offline_task_service.get_session", return_value=ctx):
+            await service.update_lifecycle("hash1", "organize_failed", "移动文件超时")
+
+        assert record.status == "organize_failed"
+        assert record.error_message == "移动文件超时"
+
+    @pytest.mark.asyncio
+    async def test_missing_record_is_silent_noop(self, service):
+        """本地记录不存在时静默返回（既有行为）"""
+        ctx = _mock_session(existing_task=None)
+        with patch("app.services.offline_task_service.get_session", return_value=ctx):
+            await service.update_lifecycle("ghost", "completed")
+
+        ctx.__aenter__.return_value.commit.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_empty_hash_is_noop(self, service):
+        """info_hash 为空时不触达数据库"""
+        with patch(
+            "app.services.offline_task_service.get_session"
+        ) as mock_get_session:
+            await service.update_lifecycle(None, "completed")
+
+        mock_get_session.assert_not_called()
+
+
+class TestMarkDownloadFailed:
+    """云端失败任务记录（原 monitor._handle_failed_task）"""
+
+    @pytest.mark.asyncio
+    async def test_updates_existing_record(self, service):
+        """已存在记录 → 更新为 failed 并写入失败原因与时间"""
+        record = MagicMock()
+        ctx = _mock_session(existing_task=record)
+        task = _make_cloud_task("fail_hash", name="失败任务")
+        with patch("app.services.offline_task_service.get_session", return_value=ctx):
+            await service.mark_download_failed(task)
+
+        assert record.status == "failed"
+        assert record.error_message == "下载失败"
+        assert record.name == "失败任务"
+        assert record.add_time == task.add_time
+        ctx.__aenter__.return_value.add.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_creates_record_when_missing(self, service):
+        """本地无记录时新建（session.add 被调用）"""
+        ctx = _mock_session(existing_task=None)
+        task = _make_cloud_task("fail_hash2")
+        with patch("app.services.offline_task_service.get_session", return_value=ctx):
+            await service.mark_download_failed(task)
+
+        ctx.__aenter__.return_value.add.assert_called_once()
+        ctx.__aenter__.return_value.commit.assert_called_once()
+
+
+def _make_cloud_task(info_hash: str, name: str = "任务"):
+    """构造中立 CloudTask 测试替身"""
+    from datetime import datetime as _dt
+    from app.schemas.cloud_types import CloudTask, CloudTaskStatus
+
+    return CloudTask(
+        info_hash=info_hash,
+        name=name,
+        status=CloudTaskStatus.FAILED,
+        progress=0,
+        file_id="",
+        path="",
+        add_time=_dt.fromtimestamp(1700000000),
+    )

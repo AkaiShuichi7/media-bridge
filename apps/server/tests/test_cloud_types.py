@@ -4,7 +4,14 @@
 """
 
 import pytest
-from app.schemas.cloud_types import CloudFile, P115_FIELD_MAP
+from app.schemas.cloud_types import (
+    CloudFile,
+    CloudTask,
+    CloudTaskStatus,
+    P115_FIELD_MAP,
+    cloud_task_status_from_code,
+    cloud_task_status_to_code,
+)
 
 
 class TestCloudFile:
@@ -118,3 +125,38 @@ class TestCloudFile:
         assert files[0].is_directory is False
         assert files[1].is_directory is True
         assert files[2].is_directory is False
+
+
+class TestCloudTaskStatus:
+    """测试 CloudTask 中立状态枚举与数值口径映射"""
+
+    def test_from_p115_dict_translates_status(self):
+        """115 原始状态码在 from_p115_dict 内翻译为中立枚举"""
+        base = {"info_hash": "h1", "name": "任务", "percent_done": 50, "add_time": 1700000000}
+        assert CloudTask.from_p115_dict({**base, "status": 2}).status is CloudTaskStatus.COMPLETED
+        assert CloudTask.from_p115_dict({**base, "status": 0}).status is CloudTaskStatus.DOWNLOADING
+        assert CloudTask.from_p115_dict({**base, "status": 1}).status is CloudTaskStatus.PENDING
+        assert CloudTask.from_p115_dict({**base, "status": -1}).status is CloudTaskStatus.FAILED
+        # 缺省状态码按 0 处理
+        assert CloudTask.from_p115_dict(dict(base)).status is CloudTaskStatus.DOWNLOADING
+
+    def test_from_code_mapping_rules(self):
+        """from_code：2=完成、负数=失败、1=等待中、0 及未知非负值=下载中"""
+        assert cloud_task_status_from_code(2) is CloudTaskStatus.COMPLETED
+        assert cloud_task_status_from_code(0) is CloudTaskStatus.DOWNLOADING
+        assert cloud_task_status_from_code(1) is CloudTaskStatus.PENDING
+        assert cloud_task_status_from_code(-1) is CloudTaskStatus.FAILED
+        assert cloud_task_status_from_code(-3) is CloudTaskStatus.FAILED
+        assert cloud_task_status_from_code(3) is CloudTaskStatus.DOWNLOADING
+
+    def test_to_code_contract(self):
+        """to_code：对外数值口径 2/-1/1/0"""
+        assert cloud_task_status_to_code(CloudTaskStatus.COMPLETED) == 2
+        assert cloud_task_status_to_code(CloudTaskStatus.FAILED) == -1
+        assert cloud_task_status_to_code(CloudTaskStatus.PENDING) == 1
+        assert cloud_task_status_to_code(CloudTaskStatus.DOWNLOADING) == 0
+
+    @pytest.mark.parametrize("code", [2, 1, 0, -1])
+    def test_round_trip_preserves_known_codes(self, code):
+        """已知口径数值 round-trip 后保持不变（API 契约不回归）"""
+        assert cloud_task_status_to_code(cloud_task_status_from_code(code)) == code

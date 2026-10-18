@@ -10,7 +10,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from app.schemas.cloud_types import CloudFile, CloudTask
+# 中立状态枚举随契约一并提供（定义在 cloud_types 以避免循环导入），调用方统一从本模块导入
+from app.schemas.cloud_types import CloudFile, CloudTask, CloudTaskStatus
 
 
 class CloudService(ABC):
