@@ -92,79 +92,33 @@ class FileOrganizer:
 
         try:
             async with self._lock:
-                task_id = task_ref.info_hash
-                task_name = task_ref.name
-                download_path_id = task_ref.download_path_id
-
-                # 获取任务目录的内容（CloudService 返回标准 CloudFile 列表）
-                task_path_id = task_ref.path_id
-                files = await self._client.list_files(task_path_id)
-                logger.debug(f"任务 {task_id} 目录下返回 {len(files)} 个条目")
-
-                # 如果任务目录里没有文件，尝试在父目录中查找任务名称对应的目录
-                if not files and task_name and download_path_id:
-                    logger.debug(f"任务 {task_id} 目录为空，尝试在父目录查找 {task_name}")
-                    parent_files = await self._client.list_files(download_path_id)
-
-                    for item in parent_files:
-                        # 查找与任务同名的目录
-                        if item.is_directory and item.name == task_name:
-                            task_path_id = item.file_id
-                            logger.debug(f"任务 {task_id} 找到补偿目录 ID: {task_path_id}")
-
-                            # 重新查询任务目录内容
-                            files = await self._client.list_files(task_path_id)
-                            break
-
-                if not files:
-                    logger.warning(f"任务 {task_id} 无文件可整理")
-                    result.message = "任务目录中没有文件可整理"
-                    return result
-
-                # 库级阈值 <=0 时回落到媒体级默认值
-                effective_min_size = (
-                    library_config.min_transfer_size
-                    if library_config.min_transfer_size > 0
-                    else media_config.min_transfer_size
+                # 内部 seam：目录定位（含父目录补偿）与视频过滤收拢单点
+                collected = await self._collect_video_files(
+                    task_ref, library_config, media_config
                 )
-                filter_config = {
-                    "video_formats": media_config.video_formats,
-                    "min_transfer_size": effective_min_size,
-                }
-
-                # 统一走 filter_files 单点过滤（含目录跳过、格式与大小判定）
-                video_files = filter_files(files, filter_config)
-                logger.debug(
-                    f"任务 {task_id} 过滤结果: 保留 {len(video_files)} / 共 {len(files)} 个条目"
-                )
-
-                if not video_files:
-                    logger.warning(
-                        f"任务 {task_id} 无符合条件的视频文件 (共查询 {len(files)} 个文件)"
-                    )
-                    result.message = (
-                        f"任务目录共 {len(files)} 个文件，无符合条件的视频文件（格式或大小过滤后为空）"
-                    )
+                if isinstance(collected, str):
+                    # 收集阶段提前返回：携带可读原因（无文件 / 过滤后为空）
+                    result.message = collected
                     return result
 
                 library_type = library_config.type
 
                 if library_type == "system":
                     await self.organize_files_system(
-                        video_files,
+                        collected,
                         library_config.target_path,
-                        task_id,
+                        task_ref.info_hash,
                         library_config,
                         result,
                     )
                 elif library_type.startswith("xx-"):
                     producer = extract_producer(library_type)
                     await self.organize_files_xx(
-                        video_files,
+                        collected,
                         library_config.target_path,
                         producer,
                         xx_config,
-                        task_id,
+                        task_ref.info_hash,
                         library_config,
                         result,
                     )
@@ -179,6 +133,76 @@ class FileOrganizer:
                 f"整理任务失败: {e}; task_id={task_ref.info_hash}, library={library_config.name}"
             )
             raise
+
+    async def _collect_video_files(
+        self,
+        task_ref: OfflineTaskRef,
+        library_config: "LibraryConfig",
+        media_config: "MediaConfig",
+    ):
+        """目录定位与视频过滤（internal seam）
+
+        流程：任务目录列表 → 空目录时按任务名在父目录补偿查找 →
+        filter_files 单点过滤（目录跳过、格式与大小判定）。
+
+        Returns:
+            过滤后的视频文件列表；收集失败时返回可读原因字符串
+            （写入 OrganizeResult.message，供监控层区分「全跳过」结局）。
+        """
+        task_id = task_ref.info_hash
+        task_name = task_ref.name
+        download_path_id = task_ref.download_path_id
+
+        # 获取任务目录的内容（CloudService 返回标准 CloudFile 列表）
+        task_path_id = task_ref.path_id
+        files = await self._client.list_files(task_path_id)
+        logger.debug(f"任务 {task_id} 目录下返回 {len(files)} 个条目")
+
+        # 如果任务目录里没有文件，尝试在父目录中查找任务名称对应的目录
+        if not files and task_name and download_path_id:
+            logger.debug(f"任务 {task_id} 目录为空，尝试在父目录查找 {task_name}")
+            parent_files = await self._client.list_files(download_path_id)
+
+            for item in parent_files:
+                # 查找与任务同名的目录
+                if item.is_directory and item.name == task_name:
+                    task_path_id = item.file_id
+                    logger.debug(f"任务 {task_id} 找到补偿目录 ID: {task_path_id}")
+
+                    # 重新查询任务目录内容
+                    files = await self._client.list_files(task_path_id)
+                    break
+
+        if not files:
+            logger.warning(f"任务 {task_id} 无文件可整理")
+            return "任务目录中没有文件可整理"
+
+        # 库级阈值 <=0 时回落到媒体级默认值
+        effective_min_size = (
+            library_config.min_transfer_size
+            if library_config.min_transfer_size > 0
+            else media_config.min_transfer_size
+        )
+        filter_config = {
+            "video_formats": media_config.video_formats,
+            "min_transfer_size": effective_min_size,
+        }
+
+        # 统一走 filter_files 单点过滤（含目录跳过、格式与大小判定）
+        video_files = filter_files(files, filter_config)
+        logger.debug(
+            f"任务 {task_id} 过滤结果: 保留 {len(video_files)} / 共 {len(files)} 个条目"
+        )
+
+        if not video_files:
+            logger.warning(
+                f"任务 {task_id} 无符合条件的视频文件 (共查询 {len(files)} 个文件)"
+            )
+            return (
+                f"任务目录共 {len(files)} 个文件，无符合条件的视频文件（格式或大小过滤后为空）"
+            )
+
+        return video_files
 
     async def _move_and_record(
         self,
