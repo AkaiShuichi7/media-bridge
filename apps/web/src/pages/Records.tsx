@@ -31,6 +31,7 @@ export default function Records() {
           <TabsList>
             <TabsTrigger value="all">全部</TabsTrigger>
             <TabsTrigger value="success">成功</TabsTrigger>
+            <TabsTrigger value="skipped">跳过</TabsTrigger>
             <TabsTrigger value="failed">失败</TabsTrigger>
           </TabsList>
         </Tabs>

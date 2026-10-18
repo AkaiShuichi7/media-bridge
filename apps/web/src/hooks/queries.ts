@@ -18,11 +18,11 @@ export function useStatus() {
   })
 }
 
-export function useTasks(page = 1, pageSize = 100, status?: number) {
+export function useTasks(page = 1, pageSize = 100) {
   return useQuery({
-    queryKey: ['tasks', page, pageSize, status],
+    queryKey: ['tasks', page, pageSize],
     queryFn: async () => {
-      const params = { page, page_size: pageSize, status }
+      const params = { page, page_size: pageSize }
       const response = await api.get('/api/tasks', { params })
       return response.data.data
     },
