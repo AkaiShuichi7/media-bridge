@@ -29,6 +29,10 @@ infra/           Docker + nginx + supervisor 部署配置
 
 单上下文布局：根级 `CONTEXT.md` 词汇表 + `docs/adr/` 决策记录，由 `/domain-modeling` 按需懒创建。见 `docs/agents/domain.md`。
 
+### Architecture flow
+
+处理系统架构、任务生命周期、扩展捕获或部署启动相关工作时，先读取 `docs/architecture/project-flow.md`（Mermaid 流程源文件）；视觉版见 `docs/architecture/project-flow.html`。流程图与代码不一致时，以当前代码为准。
+
 ## 约定
 
 - 提交遵循 Conventional Commits（feat/fix/chore...），小步提交
