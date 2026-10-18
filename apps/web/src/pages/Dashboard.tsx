@@ -25,6 +25,51 @@ import {
   isTaskPending,
 } from '@/types/api'
 
+/**
+ * 添加离线任务表单（模块级组件：值与回调全部经由 props 传入，
+ * 避免在渲染函数内创建组件导致状态重置）
+ */
+function AddTaskForm(props: {
+  magnet: string
+  onMagnetChange: (v: string) => void
+  libraryName: string
+  onLibraryChange: (v: string) => void
+  taskName: string
+  onTaskNameChange: (v: string) => void
+  libraries?: LibraryItem[]
+}) {
+  const { magnet, onMagnetChange, libraryName, onLibraryChange, taskName, onTaskNameChange, libraries } = props
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <label className="text-sm font-medium">磁力链接 *</label>
+        <Textarea
+          placeholder="magnet:?xt=urn:btih:..."
+          value={magnet}
+          onChange={e => onMagnetChange(e.target.value)}
+          rows={3}
+          className="break-all"
+        />
+      </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium">媒体库 *</label>
+        <Select value={libraryName} onValueChange={onLibraryChange}>
+          <SelectTrigger><SelectValue placeholder="选择媒体库" /></SelectTrigger>
+          <SelectContent>
+            {libraries?.map((lib: LibraryItem) => (
+              <SelectItem key={lib.name} value={lib.name}>{lib.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium">任务名称（可选）</label>
+        <Input placeholder="自定义名称" value={taskName} onChange={e => onTaskNameChange(e.target.value)} />
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [magnet, setMagnet] = useState('')
@@ -54,36 +99,6 @@ export default function Dashboard() {
     setTaskName('')
     setAddDialogOpen(false)
   }
-
-  const AddTaskForm = () => (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <label className="text-sm font-medium">磁力链接 *</label>
-        <Textarea 
-          placeholder="magnet:?xt=urn:btih:..." 
-          value={magnet}
-          onChange={e => setMagnet(e.target.value)}
-          rows={3}
-          className="break-all"
-        />
-      </div>
-      <div className="space-y-2">
-        <label className="text-sm font-medium">媒体库 *</label>
-        <Select value={libraryName} onValueChange={setLibraryName}>
-          <SelectTrigger><SelectValue placeholder="选择媒体库" /></SelectTrigger>
-          <SelectContent>
-            {libraries?.map((lib: LibraryItem) => (
-              <SelectItem key={lib.name} value={lib.name}>{lib.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="space-y-2">
-        <label className="text-sm font-medium">任务名称（可选）</label>
-        <Input placeholder="自定义名称" value={taskName} onChange={e => setTaskName(e.target.value)} />
-      </div>
-    </div>
-  )
 
   return (
     <PageContainer>
@@ -201,7 +216,15 @@ export default function Dashboard() {
           </DialogTrigger>
           <DialogContent>
             <DialogHeader><DialogTitle>添加离线下载任务</DialogTitle></DialogHeader>
-            <AddTaskForm />
+            <AddTaskForm
+              magnet={magnet}
+              onMagnetChange={setMagnet}
+              libraryName={libraryName}
+              onLibraryChange={setLibraryName}
+              taskName={taskName}
+              onTaskNameChange={setTaskName}
+              libraries={libraries}
+            />
             <DialogFooter>
               <Button variant="outline" onClick={() => setAddDialogOpen(false)}>取消</Button>
               <Button onClick={handleAddTask} disabled={addTask.isPending || !magnet.trim() || !libraryName}>
