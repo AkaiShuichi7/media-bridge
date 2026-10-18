@@ -79,6 +79,28 @@ class OrganizeRecordsResponse(BaseModel):
     records: list[OrganizeRecordItem] = Field(..., description="整理记录列表")
 
 
+class ArchiveHit(BaseModel):
+    """归档查询的单条命中项（Agent 归档查询接口）。"""
+
+    kind: str = Field(
+        ...,
+        description="命中类型：archived=已归档 / in_flight=在途 / failed=失败 / skipped=跳过",
+    )
+    title: str = Field(..., description="命中标题（文件名或任务名）")
+    library_name: Optional[str] = Field(None, description="所属媒体库")
+    path: Optional[str] = Field(None, description="归档目标路径（未归档时为空）")
+    info_hash: Optional[str] = Field(None, description="任务 info_hash（任务来源时提供）")
+    occurred_at: Optional[datetime] = Field(None, description="发生时间")
+
+
+class ArchiveQueryResponse(BaseModel):
+    """归档查询响应体（Agent 归档查询接口）。"""
+
+    query: str = Field(..., description="查询关键词")
+    total: int = Field(..., description="命中总数")
+    hits: list[ArchiveHit] = Field(..., description="命中列表")
+
+
 class P115ConfigResponse(BaseModel):
     """云盘配置响应体，包含离线任务轮询间隔参数。"""
     poll_interval_min: int = Field(..., description="离线任务轮询间隔最小值（秒）")

@@ -429,6 +429,32 @@ class FileOrganizer:
             records = (await session.execute(stmt)).scalars().all()
             return total, list(records)
 
+    async def search_records(
+        self, keyword: str, limit: int = 20
+    ) -> list[OrganizeRecord]:
+        """按关键词模糊检索整理记录（文件名或目标路径命中即可）。
+
+        供归档聚合查询使用；按创建时间倒序，最多返回 limit 条。
+        数据库不可用时降级为空列表（与查询侧其他方法一致）。
+        """
+        like = f"%{keyword}%"
+        try:
+            async with get_session() as session:
+                stmt = (
+                    select(OrganizeRecord)
+                    .where(
+                        (OrganizeRecord.file_name.like(like))
+                        | (OrganizeRecord.target_path.like(like))
+                    )
+                    .order_by(OrganizeRecord.created_at.desc())
+                    .limit(limit)
+                )
+                records = (await session.execute(stmt)).scalars().all()
+                return list(records)
+        except Exception as e:
+            logger.warning(f"检索整理记录失败，归档查询将不含记录侧命中: {e}")
+            return []
+
     async def cleanup_source(
         self, task_id: str, info_hash: str, source_files: list
     ) -> None:

@@ -398,3 +398,99 @@ class OfflineTaskService:
             if status == "completed":
                 offline_task.complete_time = datetime.now()
             await session.commit()
+
+    # ------------------------------------------------------------------
+    # 归档聚合查询（Agent 接口后端）
+    # ------------------------------------------------------------------
+
+    # 本地任务生命周期状态 → 归档命中类型的中立映射
+    _TASK_KIND_MAP = {
+        "added": "in_flight",
+        "downloading": "in_flight",
+        "completed": "archived",
+        "failed": "failed",
+        "organize_failed": "failed",
+        "organize_skipped": "skipped",
+    }
+
+    # 整理记录状态 → 归档命中类型的中立映射
+    _RECORD_KIND_MAP = {
+        "success": "archived",
+        "skipped": "skipped",
+        "failed": "failed",
+    }
+
+    async def search_tasks(self, keyword: str, limit: int = 20) -> list:
+        """按关键词模糊检索本地任务记录（任务名或 info_hash 命中即可）。
+
+        供归档聚合查询使用；按创建时间倒序，最多返回 limit 条。
+        数据库不可用时降级为空列表（与查询侧其他方法一致）。
+        """
+        like = f"%{keyword}%"
+        try:
+            async with get_session() as session:
+                stmt = (
+                    select(OfflineTask)
+                    .where(
+                        (OfflineTask.name.like(like))
+                        | (OfflineTask.info_hash.like(like))
+                    )
+                    .order_by(OfflineTask.created_at.desc())
+                    .limit(limit)
+                )
+                tasks = (await session.execute(stmt)).scalars().all()
+                return list(tasks)
+        except Exception as e:
+            logger.warning(f"检索本地任务失败，归档查询将不含任务侧命中: {e}")
+            return []
+
+    async def query_archive(self, keyword: str, limit: int = 20) -> list[dict]:
+        """按番号/关键词聚合查询归档状态（归档查询接口的领域后端）。
+
+        汇总两侧信号并统一为中立命中结构：
+        - 整理记录侧（FileOrganizer.search_records）：归档结果的事实来源
+        - 本地任务侧（search_tasks）：在途/失败的生命周期来源
+
+        同一 info_hash 同时出现在两侧时以整理记录为准（归档事实优先于
+        生命周期），避免「已归档 + completed 任务」重复计数。
+
+        Args:
+            keyword: 番号或关键词（子串匹配）
+            limit: 最多返回条数
+
+        Returns:
+            命中字典列表：kind / title / library_name / path / info_hash / occurred_at
+        """
+        hits: list[dict] = []
+        seen_info_hashes: set[str] = set()
+
+        # 整理记录侧：归档事实优先
+        for record in await self._organizer.search_records(keyword, limit=limit):
+            seen_info_hashes.add(record.task_id or "")
+            hits.append(
+                {
+                    "kind": self._RECORD_KIND_MAP.get(record.status or "", "skipped"),
+                    "title": record.file_name or "",
+                    "library_name": record.library_name,
+                    "path": record.target_path,
+                    "info_hash": record.task_id,
+                    "occurred_at": record.created_at,
+                }
+            )
+
+        # 本地任务侧：跳过已被整理记录覆盖的 info_hash
+        for task in await self.search_tasks(keyword, limit=limit):
+            if task.info_hash and task.info_hash in seen_info_hashes:
+                continue
+            hits.append(
+                {
+                    "kind": self._TASK_KIND_MAP.get(task.status or "", "in_flight"),
+                    "title": task.name or "",
+                    "library_name": task.library_name,
+                    "path": None,
+                    "info_hash": task.info_hash,
+                    "occurred_at": task.complete_time or task.add_time,
+                }
+            )
+
+        return hits[:limit]

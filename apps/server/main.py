@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api import auth, tasks, organize, config, system
+from app.api import agent, auth, config, organize, system, tasks
 from app.core.config import load_config
 from app.core.container import AppContainer
 from app.schemas.api import ApiResponse, success_response
@@ -114,6 +114,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 app.include_router(tasks.router, prefix="/api", tags=["tasks"])
 app.include_router(organize.router, prefix="/api", tags=["organize"])
+app.include_router(agent.router, prefix="/api", tags=["agent"])
 app.include_router(config.router, prefix="/api", tags=["config"])
 app.include_router(system.router, prefix="/api", tags=["system"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
