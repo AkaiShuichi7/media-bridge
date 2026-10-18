@@ -28,7 +28,7 @@ infra/
   Dockerfile / docker-compose.yml / nginx / supervisor
 docs/
   agents/         工程技能配置（issue 跟踪、triage 标签、领域文档规则）
-CONTEXT.md        领域词汇表（离线任务/番号/临时目录等术语的唯一定义处）
+GLOSSARY.md       领域词汇表（离线任务/番号/临时目录等术语的唯一定义处）
 ```
 
 ### 服务端模块速览
@@ -132,6 +132,6 @@ media:
 ## 开发约定
 
 - 提交遵循 Conventional Commits（`feat:` / `fix:` / `chore:` / `refactor:` / `docs:`），小步提交
-- 领域术语以根目录 `CONTEXT.md` 为准（如"番号"、"临时目录"、"CloudService"）
+- 领域术语以根目录 `GLOSSARY.md` 为准（如"番号"、"临时目录"、"CloudService"）
 - 服务端 seam 纪律：CloudService 契约之外不得出现 115 原始字段（`fid`/`n`/`sz`/`cid` 等），字段翻译只发生在适配器内
 - 镜像发布：根 Docker workflow 仅在 `apps/server`、`apps/web`、`infra` 或 workflow 自身变更时构建统一镜像；扩展与 Agent 后续使用独立 workflow

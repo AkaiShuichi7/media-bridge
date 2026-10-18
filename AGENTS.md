@@ -27,7 +27,7 @@ infra/           Docker + nginx + supervisor 部署配置
 
 ### Domain docs
 
-单上下文布局：根级 `CONTEXT.md` 词汇表 + `docs/adr/` 决策记录，由 `/domain-modeling` 按需懒创建。见 `docs/agents/domain.md`。
+单上下文布局：根级 `GLOSSARY.md` 词汇表 + `docs/adr/` 决策记录，由 `/domain-modeling` 按需懒创建。见 `docs/agents/domain.md`。
 
 ### Architecture flow
 
