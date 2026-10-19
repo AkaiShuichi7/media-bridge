@@ -175,6 +175,12 @@ class StatusResponse(BaseModel):
     last_check_time: Optional[str] = Field(None, description="上次检查时间")
 
 
+class VersionResponse(BaseModel):
+    """应用版本信息响应体。"""
+    name: str = Field(..., description="应用名称")
+    version: str = Field(..., description="应用版本；不可用时为 unknown")
+
+
 class ErrorResponse(BaseModel):
     """API 错误响应体，包含错误详情描述。"""
     detail: str = Field(..., description="错误详情")

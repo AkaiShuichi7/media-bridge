@@ -8,14 +8,21 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends
 
 from app.core.dependencies import get_cloud_service, get_task_monitor
-from app.schemas.api import ApiResponse, StatusResponse, success_response
+from app.schemas.api import ApiResponse, StatusResponse, VersionResponse, success_response
 from app.services.cloud.base import CloudService, CloudTaskStatus
+from app.services.version import get_version_info
 
 if TYPE_CHECKING:
     from app.tasks.monitor import TaskMonitor
 
 
 router = APIRouter()
+
+
+@router.get("/version", response_model=VersionResponse)
+async def get_version() -> VersionResponse:
+    """返回应用名称和版本号。"""
+    return VersionResponse(**get_version_info())
 
 
 @router.get("/status", response_model=ApiResponse[StatusResponse])

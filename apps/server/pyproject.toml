@@ -1,0 +1,5 @@
+[project]
+name = "mediabridge"
+version = "1.0.0"
+description = "MediaBridge 后端服务项目元数据"
+requires-python = ">=3.13"
